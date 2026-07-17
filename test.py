@@ -5,58 +5,52 @@ import hmac
 import hashlib
 import sqlite3
 import os
-from minio import Minio
-from minio.error import S3Error
 import time
+from supabase import create_client, Client
 
-MINIO_URL = "minio-xxxx.onrender.com:9000"  # замени на свой URL Render
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "minioadmin"
-MINIO_BUCKET = "vk-photos"
+SUPABASE_URL = "https://supabase.co"
+SUPABASE_KEY = "sb_secret_vydIOeDh58nibM5CObkBvw_nHXcgA-R"
+SUPABASE_BUCKET = "images"
 
-minio_client = Minio(
-    MINIO_URL,
-    access_key=MINIO_ACCESS_KEY,
-    secret_key=MINIO_SECRET_KEY,
-    secure=True
-)
+# Инициализируем клиент Supabase
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def upload_photo_to_minio(user_id, photo_url):
-    """Скачивает фото из ВК и загружает в MinIO, возвращает публичный URL"""
+def upload_photo_to_supabase(user_id, photo_url):
+    """Скачивает фото из ВК, загружает в Supabase Storage и возвращает публичный URL"""
+    temp_file = f"temp_{user_id}.jpg"
+    # Путь внутри бакета Supabase
+    object_name = f"user_{user_id}/{int(time.time())}.jpg"
+
     try:
-        # Скачиваем фото во временный файл
-        temp_file = f"temp_{user_id}.jpg"
+        # 1. Скачиваем фото во временный файл на Render
         with requests.get(photo_url, stream=True) as r:
             r.raise_for_status()
             with open(temp_file, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
 
-        # Придумываем имя файла в MinIO
-        object_name = f"user_{user_id}/{int(time.time())}.jpg"
+        # 2. Загружаем файл в бакет Supabase Storage
+        with open(temp_file, 'rb') as f:
+            supabase.storage.from_(SUPABASE_BUCKET).upload(
+                path=object_name,
+                file=f,
+                file_options={"content-type": "image/jpeg"}
+            )
 
-        # Загружаем в MinIO
-        minio_client.fput_object(
-            MINIO_BUCKET,
-            object_name,
-            temp_file,
-            content_type="image/jpeg"
-        )
-
-        # Удаляем временный файл
-        os.remove(temp_file)
-
-        # Формируем публичный URL
-        public_url = f"https://{MINIO_URL}/{MINIO_BUCKET}/{object_name}"
+        # 3. Получаем готовую публичную ссылку на изображение
+        public_url = supabase.storage.from_(
+            SUPABASE_BUCKET).get_public_url(object_name)
         return public_url
 
-    except S3Error as e:
-        print(f"Ошибка MinIO: {e}")
-        return None
     except Exception as e:
-        print(f"Ошибка загрузки: {e}")
+        print(f"Ошибка загрузки в Supabase: {e}")
         return None
+
+    finally:
+        # 4. Обязательно чистим за собой временный файл на Render
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
 
 
 # ---------- НАСТРОЙКИ (замени на свои) ----------
@@ -250,7 +244,7 @@ def index():
     def enrich(p):
         return {
             'id': p['id'],
-            'url': photo['filename'],
+            'url': p['filename'],
             'liked': has_user_voted(user_id, p['id']) if user_id else False
         }
 
