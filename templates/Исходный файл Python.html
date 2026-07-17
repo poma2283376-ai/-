@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Фото-сервис</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+      }
+      .top-bar {
+        background: #f0f0f0;
+        padding: 10px;
+        white-space: nowrap;
+        overflow-x: auto;
+      }
+      .top-item {
+        display: inline-block;
+        margin: 0 10px;
+        text-align: center;
+      }
+      .top-item img {
+        height: 100px;
+        border-radius: 8px;
+      }
+      .photo-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        padding: 20px;
+      }
+      .photo-card {
+        width: 200px;
+        text-align: center;
+      }
+      .photo-card img {
+        width: 100%;
+        border-radius: 8px;
+      }
+      .like-btn {
+        cursor: pointer;
+        font-size: 18px;
+      }
+      .liked {
+        color: red;
+      }
+    </style>
+  </head>
+  <body>
+    {% if user_id %}
+    <p>👋 Вы вошли как {{ user_id }}</p>
+    {% else %}
+    <p>❗ Откройте приложение через ВК</p>
+    {% endif %}
+
+    <h2>🏆 Лучшие работы</h2>
+    <div class="top-bar">
+      {% for photo in top_data %}
+      <div class="top-item">
+        <img src="{{ photo.url }}" alt="" /><br />
+        ❤️ {{ photo.likes }}
+      </div>
+      {% endfor %}
+    </div>
+
+    <h2>📸 Случайные работы</h2>
+    <div class="photo-grid">
+      {% for photo in random_data %}
+      <div class="photo-card">
+        <img src="{{ photo.url }}" alt="" />
+        <div>
+          <span
+            class="like-btn {% if photo.liked %}liked{% endif %}"
+            onclick="like({{ photo.id }}, this)"
+          >
+            ❤️ <span class="count">{{ photo.likes }}</span>
+          </span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <script>
+      async function like(photoId, btn) {
+        const resp = await fetch("/like/" + photoId, { method: "POST" });
+        if (resp.ok) {
+          const data = await resp.json();
+          btn.querySelector(".count").textContent = data.likes;
+          if (data.liked) btn.classList.add("liked");
+          else btn.classList.remove("liked");
+        } else {
+          alert("Чтобы оценить, откройте приложение из ВК");
+        }
+      }
+    </script>
+  </body>
+</html>
