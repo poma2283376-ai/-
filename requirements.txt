@@ -5,3 +5,4 @@ gigachat
 requests
 urllib3
 requests
+minio

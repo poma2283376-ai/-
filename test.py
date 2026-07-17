@@ -1,10 +1,63 @@
-import os
-import sqlite3
-import hashlib
-import hmac
-import urllib.parse
-from flask import Flask, render_template, redirect, url_for, request, session, send_from_directory, jsonify
 import requests
+from flask import Flask, render_template, redirect, url_for, request, session, send_from_directory, jsonify
+import urllib.parse
+import hmac
+import hashlib
+import sqlite3
+import os
+from minio import Minio
+from minio.error import S3Error
+import time
+
+MINIO_URL = "minio-xxxx.onrender.com:9000"  # замени на свой URL Render
+MINIO_ACCESS_KEY = "minioadmin"
+MINIO_SECRET_KEY = "minioadmin"
+MINIO_BUCKET = "vk-photos"
+
+minio_client = Minio(
+    MINIO_URL,
+    access_key=MINIO_ACCESS_KEY,
+    secret_key=MINIO_SECRET_KEY,
+    secure=True
+)
+
+
+def upload_photo_to_minio(user_id, photo_url):
+    """Скачивает фото из ВК и загружает в MinIO, возвращает публичный URL"""
+    try:
+        # Скачиваем фото во временный файл
+        temp_file = f"temp_{user_id}.jpg"
+        with requests.get(photo_url, stream=True) as r:
+            r.raise_for_status()
+            with open(temp_file, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+        # Придумываем имя файла в MinIO
+        object_name = f"user_{user_id}/{int(time.time())}.jpg"
+
+        # Загружаем в MinIO
+        minio_client.fput_object(
+            MINIO_BUCKET,
+            object_name,
+            temp_file,
+            content_type="image/jpeg"
+        )
+
+        # Удаляем временный файл
+        os.remove(temp_file)
+
+        # Формируем публичный URL
+        public_url = f"https://{MINIO_URL}/{MINIO_BUCKET}/{object_name}"
+        return public_url
+
+    except S3Error as e:
+        print(f"Ошибка MinIO: {e}")
+        return None
+    except Exception as e:
+        print(f"Ошибка загрузки: {e}")
+        return None
+
 
 # ---------- НАСТРОЙКИ (замени на свои) ----------
 PHOTO_ROOT = os.path.join(os.path.expanduser("~"), "Desktop", "VK_Photos")
