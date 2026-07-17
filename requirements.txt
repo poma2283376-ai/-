@@ -1,0 +1,6 @@
+flask
+gunicorn
+vk-api
+gigachat
+requests
+urllib3
