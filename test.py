@@ -3,7 +3,8 @@ import sqlite3
 import hashlib
 import hmac
 import urllib.parse
-from flask import Flask, render_template, redirect, url_for, request, session, send_from_directory, jsonify, requests
+from flask import Flask, render_template, redirect, url_for, request, session, send_from_directory, jsonify
+import requests
 
 # ---------- НАСТРОЙКИ (замени на свои) ----------
 PHOTO_ROOT = os.path.join(os.path.expanduser("~"), "Desktop", "VK_Photos")

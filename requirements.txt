@@ -4,3 +4,4 @@ vk-api
 gigachat
 requests
 urllib3
+requests
