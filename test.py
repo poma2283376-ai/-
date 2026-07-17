@@ -250,8 +250,7 @@ def index():
     def enrich(p):
         return {
             'id': p['id'],
-            'url': url_for('serve_photo', filepath=p['filename']),
-            'likes': p['likes'],
+            'url': photo['filename'],
             'liked': has_user_voted(user_id, p['id']) if user_id else False
         }
 
