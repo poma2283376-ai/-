@@ -259,7 +259,8 @@ def auto_auth():
 
 @app.route('/')
 def index():
-    # 1. Синхронизируем базу данных с картинками из Supabase Storage
+    # 1. СТРОГО СНАЧАЛА принудительно скачиваем все ссылки из Supabase в новую БД.
+    # Без этого шага функции ниже будут пытаться читать пустую таблицу!
     sync_photos()
 
     user_id = session.get('user_id')
@@ -272,7 +273,7 @@ def index():
             'SELECT name, avatar FROM users WHERE user_id = ?', (user_id,)).fetchone()
         if not user_row:
             try:
-                resp = requests.get('https://api.vk.com/method/users.get', params={
+                resp = requests.get('https://vk.com', params={
                     'user_ids': user_id, 'fields': 'photo_100',
                     'access_token': VK_SERVICE_TOKEN, 'v': '5.199'
                 }).json()
@@ -290,8 +291,42 @@ def index():
             user_avatar = user_row['avatar']
         conn.close()
 
+    # 2. И только ПОСЛЕ успешной синхронизации достаем картинки из базы данных
     top_photos = get_top_photos(5)
     random_photos = get_random_photos(30)
+
+    def enrich(p):
+        return {
+            'id': p['id'],
+            'url': p['filename'],
+            'likes': p['likes'],
+            'liked': has_user_voted(user_id, p['id']) if user_id else False
+        }
+
+    top_data = [enrich(p) for p in top_photos]
+    random_data = [enrich(p) for p in random_photos]
+
+    html = '<!DOCTYPE html><html><head><title>Фото-сервис</title><meta charset="utf-8">'
+    html += '<style>body{font-family:Arial;margin:20px}.top-bar{background:#f0f0f0;padding:10px;white-space:nowrap;overflow-x:auto}.top-item{display:inline-block;margin:0 10px;text-align:center}.top-item img{height:100px;border-radius:8px}.photo-grid{display:flex;flex-wrap:wrap;gap:15px;padding:20px}.photo-card{width:200px;text-align:center}.photo-card img{width:100%;border-radius:8px}.like-btn{cursor:pointer;font-size:18px}.liked{color:red}.user-info{display:flex;align-items:center;gap:10px;margin-bottom:20px}.user-info img{border-radius:50%}</style></head><body>'
+
+    if user_id:
+        if user_avatar:
+            html += f'<div class="user-info"><img src="{user_avatar}" width="50" height="50"><span>{user_name}</span></div>'
+        else:
+            html += f'<p>Вы вошли как {user_name or user_id}</p>'
+    else:
+        html += '<p><a href="/login" style="background:#0077FF;color:white;padding:10px 20px;text-decoration:none;border-radius:5px">Войти</a> '
+        html += '<a href="/register" style="background:#4CAF50;color:white;padding:10px 20px;text-decoration:none;border-radius:5px">Регистрация</a></p>'
+
+    html += '<h2>🏆 Лучшие работы</h2><div class="top-bar">'
+    for p in top_data:
+        html += f'<div class="top-item"><img src="{p["url"]}"><br>❤️ {p["likes"]}</div>'
+    html += '</div><h2>📸 Случайные работы</h2><div class="photo-grid">'
+    for p in random_data:
+        liked = 'liked' if p['liked'] else ''
+        html += f'<div class="photo-card"><img src="{p["url"]}"><div><span class="like-btn {liked}" onclick="like({p["id"]}, this)">❤️ <span class="count">{p["likes"]}</span></span></div></div>'
+    html += '</div><script>async function like(id, btn){const r=await fetch("/like/"+id,{method:"POST"});if(r.ok){const d=await r.json();btn.querySelector(".count").textContent=d.likes;if(d.liked)btn.classList.add("liked");else btn.classList.remove("liked")}else{alert("Оценивать могут только авторизованные пользователи")}}</script></body></html>'
+    return html
 
     # ✅ ИСПРАВЛЕНО: Добавлено поле 'likes', чтобы код не выдавал ошибку KeyError
     def enrich(p):
