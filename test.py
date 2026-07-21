@@ -8,12 +8,16 @@ import os
 import time
 from supabase import create_client, Client
 
-SUPABASE_URL = "https://supabase.co"
-SUPABASE_KEY = "sb_secret_vydIOeDh58nibM5CObkBvw_nHXcgA-R"
+# Настройки Supabase
+SUPABASE_URL = "https://fmijtyjmliklxciqryap.supabase.co"
+SUPABASE_KEY = "sb_secret_cRKj_FURc95dFCYSrxNDXw_oT7W7yiU"
 SUPABASE_BUCKET = "images"
 
-# Инициализируем клиент Supabase
+# Оставляем клиент для загрузки файлов (функция upload_photo_to_supabase его использует)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Ссылка для прямых HTTP-запросов к хранилищу
+SUPABASE_API_STORAGE_URL = f"{SUPABASE_URL}/storage/v1/object/list/{SUPABASE_BUCKET}"
 
 
 def upload_photo_to_supabase(user_id, photo_url):
@@ -54,15 +58,14 @@ def upload_photo_to_supabase(user_id, photo_url):
 
 
 # ---------- НАСТРОЙКИ (замени на свои) ----------
-PHOTO_ROOT = os.path.join(os.path.expanduser("~"), "Desktop", "VK_Photos")
-VK_APP_ID = "1234567"                     # ID твоего мини-приложения
+VK_APP_ID = "54679818"                     # ID твоего мини-приложения
 VK_APP_SECRET = "gjEcinHM4La0NrqTZ0Vr"     # Секретный ключ из настроек
 SECRET_KEY = "любая_случайная_строка"     # Для Flask-сессий (придумай любую)
 VK_SERVICE_TOKEN = "330ecc69330ecc69330ecc69bb304c95633330e330ecc69595998ac4151ffecb210ea37"
 
 VK_CLIENT_ID = "54679818"  # ID твоего приложения
 VK_CLIENT_SECRET = "gjEcinHM4La0NrqTZ0Vr"  # Защищённый ключ из настроек
-VK_REDIRECT_URI = "http://127.0.0.1:5000/vk_callback"  # Для локального теста
+VK_REDIRECT_URI = "https://ecobot-lbar.onrender.com"  # Для локального теста
 # -----------------------------------------------
 
 app = Flask(__name__, template_folder=os.path.join(
@@ -103,42 +106,89 @@ def init_db():
 
 
 def sync_photos():
-    """Добавляет в БД новые фото из подпапок user_<id>"""
+    """Сканирует хранилище Supabase и автоматически добавляет ВСЕ картинки из корня и папок в SQLite"""
     conn = get_db()
     existing = {row['filename'] for row in conn.execute(
         'SELECT filename FROM photos').fetchall()}
     actual = set()
-    if os.path.exists(PHOTO_ROOT):
-        for user_folder in os.listdir(PHOTO_ROOT):
-            folder_path = os.path.join(PHOTO_ROOT, user_folder)
-            # Пропускаем файлы, берём только папки user_*
-            if os.path.isdir(folder_path) and user_folder.startswith('user_'):
-                for fname in os.listdir(folder_path):
+
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json"
+    }
+
+    try:
+        # 1. Запрашиваем список ВСЕХ файлов из корня бакета (передаем пустой префикс)
+        response = requests.post(SUPABASE_API_STORAGE_URL, json={
+                                 "prefix": ""}, headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            items = response.json()
+            for item in items:
+                # Проверяем, что это файл (у него есть id), а не папка
+                if item.get('id') is not None and item.get('name'):
+                    fname = item['name']
+
+                    # Проверяем, что файл является картинкой
                     if fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                        # Путь относительно PHOTO_ROOT: user_123/photo.jpg
-                        rel_path = os.path.join(user_folder, fname).replace(
-                            '\\', '/')  # ✅ Стало
-                        actual.add(rel_path)
-                        if rel_path not in existing:
+                        # Формируем прямой публичный интернет-URL к файлу в корне
+                        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{fname}"
+                        actual.add(public_url)
+
+                        # Если этой картинки еще нет в нашей БД, добавляем её URL
+                        if public_url not in existing:
                             conn.execute(
-                                'INSERT OR IGNORE INTO photos (filename) VALUES (?)', (rel_path,))
+                                'INSERT OR IGNORE INTO photos (filename) VALUES (?)', (public_url,))
+
+                # 2. АВТОМАТИЗМ: Если это папка (id отсутствует), заглянем и в неё тоже
+                elif item.get('id') is None and item.get('name'):
+                    folder_name = item['name']
+                    file_response = requests.post(SUPABASE_API_STORAGE_URL, json={
+                                                  "prefix": folder_name}, headers=headers, timeout=10)
+
+                    if file_response.status_code == 200:
+                        sub_items = file_response.json()
+                        for sub_item in sub_items:
+                            sub_fname = sub_item.get('name')
+                            if sub_fname and sub_fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                                object_path = f"{folder_name}/{sub_fname}"
+                                public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
+                                actual.add(public_url)
+
+                                if public_url not in existing:
+                                    conn.execute(
+                                        'INSERT OR IGNORE INTO photos (filename) VALUES (?)', (public_url,))
+        else:
+            print(
+                f"Supabase вернул код ошибки: {response.status_code}, текст: {response.text}")
+
+    except Exception as e:
+        print(
+            f"Ошибка при автоматической синхронизации с Supabase Storage: {e}")
+
+    # 3. Чистим базу от удаленных картинок
     to_remove = existing - actual
-    for rel_path in to_remove:
-        conn.execute('DELETE FROM photos WHERE filename = ?', (rel_path,))
+    for url in to_remove:
+        conn.execute('DELETE FROM photos WHERE filename = ?', (url,))
+
     conn.commit()
     conn.close()
 
 
 def get_top_photos(limit=5):
     conn = get_db()
+    # ✅ ИСПРАВЛЕНО: Сортируем сначала по лайкам (DESC), а потом по ID,
+    # чтобы даже с 0 лайков фотки попадали в топ, а не возвращали пустоту
     photos = conn.execute(
-        'SELECT * FROM photos ORDER BY likes DESC LIMIT ?', (limit,)).fetchall()
+        'SELECT * FROM photos ORDER BY likes DESC, id DESC LIMIT ?', (limit,)).fetchall()
     conn.close()
     return photos
 
 
 def get_random_photos(limit=30):
     conn = get_db()
+    # ✅ ИСПРАВЛЕНО: Берем фотографии, даже если лайков 0
     photos = conn.execute(
         'SELECT * FROM photos ORDER BY RANDOM() LIMIT ?', (limit,)).fetchall()
     conn.close()
@@ -209,6 +259,9 @@ def auto_auth():
 
 @app.route('/')
 def index():
+    # 1. Синхронизируем базу данных с картинками из Supabase Storage
+    sync_photos()
+
     user_id = session.get('user_id')
     user_name = None
     user_avatar = None
@@ -237,14 +290,16 @@ def index():
             user_avatar = user_row['avatar']
         conn.close()
 
-    sync_photos()
     top_photos = get_top_photos(5)
     random_photos = get_random_photos(30)
 
+    # ✅ ИСПРАВЛЕНО: Добавлено поле 'likes', чтобы код не выдавал ошибку KeyError
     def enrich(p):
         return {
             'id': p['id'],
+            # Здесь теперь лежит прямая ссылка на Supabase
             'url': p['filename'],
+            'likes': p['likes'],  # Получаем лайки из БД
             'liked': has_user_voted(user_id, p['id']) if user_id else False
         }
 
@@ -281,11 +336,6 @@ def like_photo(photo_id):
         return jsonify({'error': 'Необходима авторизация'}), 401
     liked, likes = toggle_like(user_id, photo_id)
     return jsonify({'liked': liked, 'likes': likes})
-
-
-@app.route('/photos/<path:filepath>')
-def serve_photo(filepath):
-    return send_from_directory(PHOTO_ROOT, filepath)
 
 
 @app.route('/vk_login')
