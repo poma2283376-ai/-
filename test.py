@@ -106,11 +106,17 @@ def upload_photo_to_supabase(user_id, photo_url):
             os.remove(temp_file)
 
 
+_last_sync_time = 0
+
+
 def sync_photos():
-    conn = get_db()
-    existing = {row['filename'] for row in conn.execute(
-        'SELECT filename FROM photos').fetchall()}
-    actual = set()
+    """Сканирует Supabase не чаще чем раз в 5 минут"""
+    global _last_sync_time
+    current_time = time.time()
+
+    # Если синхронизация была меньше 5 минут назад — пропускаем
+    if current_time - _last_sync_time < 300:
+        return
 
     conn = get_db()
     existing = {row['filename'] for row in conn.execute(
@@ -131,47 +137,45 @@ def sync_photos():
                         if public_url not in existing:
                             conn.execute(
                                 'INSERT OR IGNORE INTO photos (filename) VALUES (?)', (public_url,))
-                elif item.get('id') is None and item.get('name'):
-                    folder_name = item['name']
-                    file_response = requests.post(SUPABASE_API_STORAGE_URL, json={
-                                                  "prefix": folder_name}, headers=headers, timeout=10)
-                    if file_response.status_code == 200:
-                        for sub_item in file_response.json():
-                            sub_fname = sub_item.get('name')
-                            if sub_fname and sub_fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                                object_path = f"{folder_name}/{sub_fname}"
-                                public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
-                                actual.add(public_url)
-                                if public_url not in existing:
-                                    conn.execute(
-                                        'INSERT OR IGNORE INTO photos (filename) VALUES (?)', (public_url,))
     except Exception as e:
         print(f"Ошибка синхронизации: {e}")
-    to_remove = existing - actual
-    to_remove = existing - actual
-    for url in to_remove:
-        try:
-            photo = conn.execute(
-                'SELECT likes FROM photos WHERE filename = ?', (url,)).fetchone()
-            if photo and photo['likes'] == 0:
-                conn.execute('DELETE FROM photos WHERE filename = ?', (url,))
-                conn.commit()  # фиксируем каждое удаление отдельно
-                time.sleep(0.1)  # небольшая пауза
-        except Exception as e:
-            print(f"Ошибка при удалении {url}: {e}")
-
     conn.commit()
     conn.close()
+    _last_sync_time = current_time
 
 
 def get_top_photos(limit=5):
+    """Получает топ фото по лайкам из Supabase"""
     conn = get_db()
-    return conn.execute('SELECT * FROM photos ORDER BY likes DESC, id DESC LIMIT ?', (limit,)).fetchall()
+    photos = conn.execute('SELECT * FROM photos').fetchall()
+    conn.close()
+
+    # Собираем лайки для каждого фото
+    photo_list = []
+    for p in photos:
+        likes = get_photo_likes(p['filename'])
+        photo_list.append(
+            {'id': p['id'], 'filename': p['filename'], 'likes': likes})
+
+    # Сортируем по лайкам и возвращаем топ
+    photo_list.sort(key=lambda x: x['likes'], reverse=True)
+    return photo_list[:limit]
 
 
 def get_random_photos(limit=30):
+    """Получает случайные фото с лайками из Supabase"""
     conn = get_db()
-    return conn.execute('SELECT * FROM photos ORDER BY RANDOM() LIMIT ?', (limit,)).fetchall()
+    photos = conn.execute(
+        'SELECT * FROM photos ORDER BY RANDOM() LIMIT ?', (limit,)).fetchall()
+    conn.close()
+
+    photo_list = []
+    for p in photos:
+        likes = get_photo_likes(p['filename'])
+        photo_list.append(
+            {'id': p['id'], 'filename': p['filename'], 'likes': likes})
+
+    return photo_list
 
 
 def has_user_voted(user_id, photo_url):
