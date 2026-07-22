@@ -111,8 +111,43 @@ def sync_photos():
     existing = {row['filename'] for row in conn.execute(
         'SELECT filename FROM photos').fetchall()}
     actual = set()
-    # ... (весь код получения actual остаётся без изменений)
 
+    conn = get_db()
+    existing = {row['filename'] for row in conn.execute(
+        'SELECT filename FROM photos').fetchall()}
+    actual = set()
+    headers = {"Authorization": f"Bearer {SUPABASE_KEY}",
+               "apikey": SUPABASE_KEY, "Content-Type": "application/json"}
+    try:
+        response = requests.post(SUPABASE_API_STORAGE_URL, json={
+                                 "prefix": ""}, headers=headers, timeout=10)
+        if response.status_code == 200:
+            for item in response.json():
+                if item.get('id') is not None and item.get('name'):
+                    fname = item['name']
+                    if fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{fname}"
+                        actual.add(public_url)
+                        if public_url not in existing:
+                            conn.execute(
+                                'INSERT OR IGNORE INTO photos (filename) VALUES (?)', (public_url,))
+                elif item.get('id') is None and item.get('name'):
+                    folder_name = item['name']
+                    file_response = requests.post(SUPABASE_API_STORAGE_URL, json={
+                                                  "prefix": folder_name}, headers=headers, timeout=10)
+                    if file_response.status_code == 200:
+                        for sub_item in file_response.json():
+                            sub_fname = sub_item.get('name')
+                            if sub_fname and sub_fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                                object_path = f"{folder_name}/{sub_fname}"
+                                public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
+                                actual.add(public_url)
+                                if public_url not in existing:
+                                    conn.execute(
+                                        'INSERT OR IGNORE INTO photos (filename) VALUES (?)', (public_url,))
+    except Exception as e:
+        print(f"Ошибка синхронизации: {e}")
+    to_remove = existing - actual
     to_remove = existing - actual
     for url in to_remove:
         try:
@@ -528,26 +563,29 @@ def finish_contest():
     time.sleep(0.1)
     conn = get_db()
     winners_count = current_contest["winners_count"]
+    # Получаем топ-N победителей
     top_winners = conn.execute(
         f'SELECT * FROM photos ORDER BY likes DESC LIMIT {winners_count}').fetchall()
+    # Получаем всех пользователей бота
     users = conn.execute(
         'SELECT user_id FROM users WHERE is_email_user = 0 AND user_id < 1000000').fetchall()
-    conn.close()
 
     if not top_winners:
         current_contest["active"] = False
+        conn.close()
         return
 
-    places = ["1-е место 🥇", "2-е место 🥈", "3-е место 🥉"]
+    # Собираем ID фото победителей
+    winner_photo_ids = [photo['id'] for photo in top_winners]
     winners_ids = set()
 
-    # Отправка победителям
+    # Отправка сообщений победителям
+    places = ["1-е место 🥇", "2-е место 🥈", "3-е место 🥉"]
     for i, photo in enumerate(top_winners):
         try:
             owner_id = int(photo['filename'].split('user_')[1].split('/')[0])
             winners_ids.add(owner_id)
             place = i + 1
-            # Выбираем шаблон
             if place == 1:
                 msg = contest_messages["winner_1"].format(likes=photo['likes'])
             elif place == 2:
@@ -564,7 +602,7 @@ def finish_contest():
         except:
             pass
 
-    # Отправка проигравшим
+    # Отправка сообщений проигравшим
     winners_list = ""
     for i, photo in enumerate(top_winners):
         place = i + 1
@@ -585,7 +623,35 @@ def finish_contest():
             except:
                 pass
 
+    # ✅ Удаляем ВСЕ фото, КРОМЕ победителей
+    # Сначала удаляем из Supabase
+    all_photos = conn.execute('SELECT * FROM photos').fetchall()
+    for photo in all_photos:
+        if photo['id'] not in winner_photo_ids:
+            try:
+                object_path = photo['filename'].split(
+                    f'{SUPABASE_BUCKET}/')[-1]
+                supabase.storage.from_(SUPABASE_BUCKET).remove([object_path])
+            except:
+                pass
+
+    # Затем удаляем записи из БД
+    if winner_photo_ids:
+        placeholders = ','.join(['?'] * len(winner_photo_ids))
+        conn.execute(
+            f'DELETE FROM photos WHERE id NOT IN ({placeholders})', winner_photo_ids)
+        conn.execute(
+            f'DELETE FROM votes WHERE photo_id NOT IN ({placeholders})', winner_photo_ids)
+    else:
+        # Если победителей нет — удаляем всё
+        conn.execute('DELETE FROM photos')
+        conn.execute('DELETE FROM votes')
+
+    conn.commit()
+    conn.close()
+
     current_contest["active"] = False
+    print(f"Конкурс завершён! Победители сохранены, остальные фото удалены.")
 
 
 @app.route('/admin/contest/start', methods=['POST'])
