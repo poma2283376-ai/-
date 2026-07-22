@@ -174,30 +174,49 @@ def get_random_photos(limit=30):
     return conn.execute('SELECT * FROM photos ORDER BY RANDOM() LIMIT ?', (limit,)).fetchall()
 
 
-def has_user_voted(user_id, photo_id):
-    conn = get_db()
-    return conn.execute('SELECT 1 FROM votes WHERE user_id = ? AND photo_id = ?', (user_id, photo_id)).fetchone() is not None
+def has_user_voted(user_id, photo_url):
+    """Проверяет, лайкал ли пользователь фото (через Supabase)"""
+    try:
+        result = supabase.table("photo_likes").select(
+            "*").eq("photo_url", photo_url).eq("user_id", user_id).execute()
+        return len(result.data) > 0
+    except:
+        return False
 
 
-def toggle_like(user_id, photo_id):
-    conn = get_db()
-    if has_user_voted(user_id, photo_id):
-        conn.execute(
-            'DELETE FROM votes WHERE user_id = ? AND photo_id = ?', (user_id, photo_id))
-        conn.execute(
-            'UPDATE photos SET likes = likes - 1 WHERE id = ?', (photo_id,))
-        liked = False
-    else:
-        conn.execute(
-            'INSERT INTO votes (user_id, photo_id) VALUES (?, ?)', (user_id, photo_id))
-        conn.execute(
-            'UPDATE photos SET likes = likes + 1 WHERE id = ?', (photo_id,))
-        liked = True
-    conn.commit()
-    new_likes = conn.execute(
-        'SELECT likes FROM photos WHERE id = ?', (photo_id,)).fetchone()[0]
-    conn.close()
-    return liked, new_likes
+def toggle_like(user_id, photo_url):
+    """Ставит/убирает лайк (через Supabase)"""
+    try:
+        if has_user_voted(user_id, photo_url):
+            # Убираем лайк
+            supabase.table("photo_likes").delete().eq(
+                "photo_url", photo_url).eq("user_id", user_id).execute()
+            liked = False
+        else:
+            # Ставим лайк
+            supabase.table("photo_likes").insert(
+                {"photo_url": photo_url, "user_id": user_id}).execute()
+            liked = True
+
+        # Считаем общее количество лайков
+        result = supabase.table("photo_likes").select(
+            "*", count="exact").eq("photo_url", photo_url).execute()
+        likes = result.count
+
+        return liked, likes
+    except Exception as e:
+        print(f"Ошибка лайка: {e}")
+        return False, 0
+
+
+def get_photo_likes(photo_url):
+    """Получает количество лайков фото из Supabase"""
+    try:
+        result = supabase.table("photo_likes").select(
+            "*", count="exact").eq("photo_url", photo_url).execute()
+        return result.count
+    except:
+        return 0
 
 
 def verify_vk_signature(request):
@@ -264,7 +283,13 @@ def index():
     random_photos = get_random_photos(30)
 
     def enrich(p):
-        return {'id': p['id'], 'url': p['filename'], 'likes': p['likes'], 'liked': has_user_voted(user_id, p['id']) if user_id else False}
+        url = p['filename']
+        return {
+            'id': p['id'],
+            'url': url,
+            'likes': get_photo_likes(url),
+            'liked': has_user_voted(user_id, url) if user_id else False
+        }
 
     top_data = [enrich(p) for p in top_photos]
     random_data = [enrich(p) for p in random_photos]
@@ -289,17 +314,17 @@ def index():
     html += '</div><h2>📸 Случайные работы</h2><div class="photo-grid">'
     for p in random_data:
         liked = 'liked' if p['liked'] else ''
-        html += f'<div class="photo-card"><img src="{p["url"]}"><div><span class="like-btn {liked}" onclick="like({p["id"]}, this)">❤️ <span class="count">{p["likes"]}</span></span></div></div>'
-    html += '</div><script>async function like(id, btn){const r=await fetch("/like/"+id,{method:"POST"});if(r.ok){const d=await r.json();btn.querySelector(".count").textContent=d.likes;if(d.liked)btn.classList.add("liked");else btn.classList.remove("liked")}else{alert("Оценивать могут только авторизованные пользователи")}}</script></body></html>'
+        html += f'<div class="photo-card"><img src="{p["url"]}"><div><span class="like-btn {liked}" data-url="{p["url"]}" onclick="like(this)">❤️ <span class="count">{p["likes"]}</span></span></div></div>'
+    html += '</div><script>async function like(btn){const url=btn.dataset.url;const r=await fetch("/like/"+encodeURIComponent(url),{method:"POST"});if(r.ok){const d=await r.json();btn.querySelector(".count").textContent=d.likes;if(d.liked)btn.classList.add("liked");else btn.classList.remove("liked")}else{alert("Оценивать могут только авторизованные пользователи")}}</script></body></html>'
     return html
 
 
-@app.route('/like/<int:photo_id>', methods=['POST'])
-def like_photo(photo_id):
+@app.route('/like/<path:photo_url>', methods=['POST'])
+def like_photo(photo_url):
     user_id = session.get('user_id')
     if not user_id:
         return jsonify({'error': 'Необходима авторизация'}), 401
-    liked, likes = toggle_like(user_id, photo_id)
+    liked, likes = toggle_like(user_id, photo_url)
     return jsonify({'liked': liked, 'likes': likes})
 
 
