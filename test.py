@@ -143,9 +143,11 @@ def sync_photos():
         print(f"Ошибка синхронизации: {e}")
     to_remove = existing - actual
     for url in to_remove:
-        conn.execute('DELETE FROM photos WHERE filename = ?', (url,))
-    conn.commit()
-    conn.close()
+        # Не удаляем фото, у которых есть лайки (чтобы не сбрасывать голоса)
+        photo = conn.execute(
+            'SELECT likes FROM photos WHERE filename = ?', (url,)).fetchone()
+        if photo and photo['likes'] == 0:
+            conn.execute('DELETE FROM photos WHERE filename = ?', (url,))
 
 
 def get_top_photos(limit=5):
