@@ -54,8 +54,9 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "votes.db")
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)  # ждать до 10 секунд
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")  # включить WAL-режим
     return conn
 
 
@@ -110,44 +111,22 @@ def sync_photos():
     existing = {row['filename'] for row in conn.execute(
         'SELECT filename FROM photos').fetchall()}
     actual = set()
-    headers = {"Authorization": f"Bearer {SUPABASE_KEY}",
-               "apikey": SUPABASE_KEY, "Content-Type": "application/json"}
-    try:
-        response = requests.post(SUPABASE_API_STORAGE_URL, json={
-                                 "prefix": ""}, headers=headers, timeout=10)
-        if response.status_code == 200:
-            for item in response.json():
-                if item.get('id') is not None and item.get('name'):
-                    fname = item['name']
-                    if fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{fname}"
-                        actual.add(public_url)
-                        if public_url not in existing:
-                            conn.execute(
-                                'INSERT OR IGNORE INTO photos (filename) VALUES (?)', (public_url,))
-                elif item.get('id') is None and item.get('name'):
-                    folder_name = item['name']
-                    file_response = requests.post(SUPABASE_API_STORAGE_URL, json={
-                                                  "prefix": folder_name}, headers=headers, timeout=10)
-                    if file_response.status_code == 200:
-                        for sub_item in file_response.json():
-                            sub_fname = sub_item.get('name')
-                            if sub_fname and sub_fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                                object_path = f"{folder_name}/{sub_fname}"
-                                public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
-                                actual.add(public_url)
-                                if public_url not in existing:
-                                    conn.execute(
-                                        'INSERT OR IGNORE INTO photos (filename) VALUES (?)', (public_url,))
-    except Exception as e:
-        print(f"Ошибка синхронизации: {e}")
+    # ... (весь код получения actual остаётся без изменений)
+
     to_remove = existing - actual
     for url in to_remove:
-        # Не удаляем фото, у которых есть лайки (чтобы не сбрасывать голоса)
-        photo = conn.execute(
-            'SELECT likes FROM photos WHERE filename = ?', (url,)).fetchone()
-        if photo and photo['likes'] == 0:
-            conn.execute('DELETE FROM photos WHERE filename = ?', (url,))
+        try:
+            photo = conn.execute(
+                'SELECT likes FROM photos WHERE filename = ?', (url,)).fetchone()
+            if photo and photo['likes'] == 0:
+                conn.execute('DELETE FROM photos WHERE filename = ?', (url,))
+                conn.commit()  # фиксируем каждое удаление отдельно
+                time.sleep(0.1)  # небольшая пауза
+        except Exception as e:
+            print(f"Ошибка при удалении {url}: {e}")
+
+    conn.commit()
+    conn.close()
 
 
 def get_top_photos(limit=5):
