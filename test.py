@@ -472,7 +472,8 @@ def admin_panel():
     
     <h2>Все фотографии</h2>'''
     for photo in photos:
-        html += f'<div style="margin-bottom:10px"><img src="{photo["filename"]}" width="100"> ❤️ {photo["likes"]} <a href="/admin/delete/{photo["id"]}" onclick="return confirm(\'Удалить?\')">Удалить</a></div>'
+        likes = get_photo_likes(photo['filename'])
+        html += f'<div style="margin-bottom:10px"><img src="{photo["filename"]}" width="100"> ❤️ {likes} <a href="/admin/delete/{photo["id"]}" onclick="return confirm(\'Удалить?\')">Удалить</a></div>'
     return html
 
 
@@ -588,8 +589,12 @@ def finish_contest():
     photo_list.sort(key=lambda x: x['likes'], reverse=True)
     top_winners = photo_list[:winners_count]
 
-    users = conn.execute(
-        'SELECT user_id FROM users WHERE is_email_user = 0 AND user_id < 1000000').fetchall()
+    # ✅ ПОЛУЧАЕМ ПОЛЬЗОВАТЕЛЕЙ ИЗ SUPABASE (НЕ ИЗ ЛОКАЛЬНОЙ БД)
+    try:
+        result = supabase.table("bot_users").select("user_id").execute()
+        users = [{'user_id': u['user_id']} for u in result.data]
+    except:
+        users = []
 
     if not top_winners:
         current_contest["active"] = False
@@ -689,14 +694,17 @@ def start_contest():
     current_contest["timer_thread"].start()
 
     announcement = contest_messages["announcement"]
-    conn = get_db()
-    users = conn.execute(
-        'SELECT user_id FROM users WHERE is_email_user = 0 AND user_id < 1000000').fetchall()
-    conn.close()
-    for u in users:
+    # ✅ ПОЛУЧАЕМ ПОЛЬЗОВАТЕЛЕЙ ИЗ SUPABASE
+    try:
+        result = supabase.table("bot_users").select("user_id").execute()
+        users = [u['user_id'] for u in result.data]
+    except:
+        users = []
+
+    for uid in users:
         try:
             requests.post('https://api.vk.com/method/messages.send', params={
-                'user_id': u['user_id'],
+                'user_id': uid,
                 'message': announcement,
                 'access_token': VK_TOKEN,
                 'v': '5.199',
