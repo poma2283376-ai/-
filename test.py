@@ -8,7 +8,6 @@ import os
 import requests
 import urllib3
 import threading
-from PIL import Image
 from gigachat import GigaChat
 from transformers import BlipProcessor, BlipForConditionalGeneration
 import torch
@@ -484,6 +483,7 @@ def ask_gigachat(user_id, user_text, detected_clothing, task="upcycling"):
 
 def get_image_description(img_bytes):
     try:
+        from PIL import Image
         raw_image = Image.open(io.BytesIO(img_bytes)).convert('RGB')
         inputs = processor(raw_image, return_tensors="pt")
         out = vision_model.generate(**inputs)
@@ -495,7 +495,7 @@ def get_image_description(img_bytes):
 def moderate_photo_with_giga(image_description):
     try:
         prompt = f"""
-Ты — модератор конкурса по апсайклингу одежды. 
+Ты — модератор конкурса по апсайклингу одежды.
 Проанализируй описание фото и ответь строго по формату:
 
 Описание фото: {image_description}
@@ -564,7 +564,7 @@ def moderate_photo_with_giga(image_description):
 def get_upcycling_advice_with_moderation(image_description):
     try:
         prompt_check = f"""
-На фото: {image_description}. 
+На фото: {image_description}.
 Есть ли на этом фото одежда? Ответь только ДА или НЕТ.
 """
         check_response = giga_client.chat({
@@ -956,3 +956,95 @@ for event in longpoll.listen():
             send_message(from_user, "Сначала нажмите 'Старт'.",
                          get_main_keyboard(registered))
         continue
+
+    if text == "отправить фото":
+        user_state[from_user]["stage"] = "waiting_for_photo"
+        send_message(from_user,
+                     "📸 Отправьте фото одежды!\n\n"
+                     "🤖 Я дам советы по апсайклингу.\n\n"
+                     "❌ Или нажмите 'Прекратить отправку'",
+                     get_cancel_keyboard())
+        continue
+
+    if text == "прекратить отправку":
+        user_state[from_user]["stage"] = "main"
+        send_message(from_user,
+                     "❌ Отправка отменена.\n\n"
+                     "🌐 Вы вернулись в главное меню.",
+                     get_main_keyboard(registered))
+        continue
+
+    if attachments and any(a["type"] == "photo" for a in attachments):
+        photo_url = attachments[0]["photo"]["sizes"][-1]["url"]
+
+        if stage == "contest_photo":
+            try:
+                send_message(from_user, "🔍 Проверяю фото...",
+                             get_cancel_keyboard())
+                img_response = requests.get(photo_url, stream=True, timeout=10)
+                if img_response.status_code != 200:
+                    send_message(
+                        from_user, "❌ Не удалось скачать фото", get_cancel_keyboard())
+                    continue
+
+                description = get_image_description(img_response.content)
+                approved, reason = moderate_photo_with_giga(description)
+
+                if not approved:
+                    send_message(
+                        from_user, f"❌ Фото не прошло модерацию!\n\n📝 {reason}\n\n❌ Или нажмите 'Прекратить отправку'", get_cancel_keyboard())
+                    continue
+
+                send_message(
+                    from_user, "✅ Фото одобрено!\n\n⏳ Загружаю...", get_cancel_keyboard())
+                success, message = upload_vk_photo_to_supabase(
+                    photo_url, from_user, description)
+
+                if success:
+                    send_message(
+                        from_user, f"{message}\n\n🎉 Поздравляем! Ваше фото участвует в конкурсе!", get_main_keyboard(registered))
+                    user_state[from_user]["stage"] = "main"
+                else:
+                    send_message(
+                        from_user, f"{message}\n\n❌ Попробуйте снова", get_cancel_keyboard())
+            except Exception as e:
+                send_message(
+                    from_user, f"❌ Ошибка: {e}", get_cancel_keyboard())
+            continue
+
+        if stage == "waiting_for_photo":
+            send_message(from_user, "✅ Анализирую фото...",
+                         get_cancel_keyboard())
+            try:
+                img_resp = requests.get(photo_url)
+                description = get_image_description(img_resp.content)
+                if description:
+                    advice, error = get_upcycling_advice_with_moderation(
+                        description)
+                    if error:
+                        send_message(
+                            from_user, f"{error}\n\n❌ Или нажмите 'Прекратить отправку'", get_cancel_keyboard())
+                    else:
+                        send_message(
+                            from_user, f"💡 **Идеи по апсайклингу:**\n\n{advice}", get_main_keyboard(registered))
+                        user_state[from_user]["stage"] = "main"
+                else:
+                    send_message(
+                        from_user, "❌ Не удалось распознать фото.", get_cancel_keyboard())
+            except Exception as e:
+                send_message(
+                    from_user, f"❌ Ошибка: {e}", get_cancel_keyboard())
+            continue
+
+    if text == "помощь":
+        help_text = "📚 **Помощь:**\n\n📸 Отправить фото — советы\n🏆 Участвовать в конкурсе\n🔹 Регистрация — создать аккаунт\n🔄 Перезапустить — сбросить"
+        send_message(from_user, help_text, get_main_keyboard(
+            registered) if stage == "main" else get_cancel_keyboard())
+        continue
+
+    # Если ничего не подошло
+    if stage == "start":
+        send_message(from_user, "Нажми 'Старт'.", get_start_keyboard())
+    else:
+        send_message(from_user, "Используйте кнопки.",
+                     get_main_keyboard(registered))
