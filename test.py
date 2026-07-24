@@ -29,7 +29,7 @@ VK_REDIRECT_URI = "https://ecobot-lbar.onrender.com"
 
 ADMIN_EMAILS = ["poma2283376@gmail.com"]
 
-# Тексты конкурса по умолчанию
+# Тексты конкурса
 contest_messages = {
     "announcement": "📢 Внимание! Запущен конкурс стилистов!\nУспейте загрузить свои работы и получить лайки!",
     "winner_1": "🎉 Поздравляем! Вы заняли 1-е место 🥇 в конкурсе стилистов!\nВаше фото набрало {likes} лайков.",
@@ -39,12 +39,11 @@ contest_messages = {
     "loser": "Конкурс завершён! К сожалению, вы не заняли призовое место.\n\nПобедители:\n{winners}"
 }
 
-# Данные текущего конкурса
 current_contest = {
     "active": False,
     "end_time": None,
     "timer_thread": None,
-    "winners_count": 3  # по умолчанию топ-3
+    "winners_count": 3
 }
 
 app = Flask(__name__, template_folder=os.path.join(
@@ -55,9 +54,9 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "votes.db")
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=10)  # ждать до 10 секунд
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")  # включить WAL-режим
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
@@ -81,26 +80,21 @@ def init_db():
         is_email_user INTEGER DEFAULT 0
     )''')
     conn.execute('''CREATE TABLE IF NOT EXISTS photo_likes_cache (
-    photo_url TEXT PRIMARY KEY,
-    likes INTEGER DEFAULT 0,
-    updated_at REAL
-)''')
+        photo_url TEXT PRIMARY KEY,
+        likes INTEGER DEFAULT 0,
+        updated_at REAL
+    )''')
     conn.commit()
     conn.close()
 
 
 def get_cached_likes(photo_url):
-    """Получает лайки из кэша или из Supabase"""
     conn = get_db()
     cached = conn.execute(
         'SELECT likes, updated_at FROM photo_likes_cache WHERE photo_url = ?', (photo_url,)).fetchone()
-
-    # Если кэш свежий (меньше 60 секунд) — используем его
     if cached and time.time() - cached['updated_at'] < 60:
         conn.close()
         return cached['likes']
-
-    # Иначе запрашиваем из Supabase
     likes = get_photo_likes(photo_url)
     conn.execute('INSERT OR REPLACE INTO photo_likes_cache (photo_url, likes, updated_at) VALUES (?, ?, ?)',
                  (photo_url, likes, time.time()))
@@ -136,14 +130,10 @@ _last_sync_time = 0
 
 
 def sync_photos():
-    """Сканирует Supabase не чаще чем раз в 5 минут"""
     global _last_sync_time
     current_time = time.time()
-
-    # Если синхронизация была меньше 5 минут назад — пропускаем
     if current_time - _last_sync_time < 300:
         return
-
     conn = get_db()
     existing = {row['filename'] for row in conn.execute(
         'SELECT filename FROM photos').fetchall()}
@@ -171,41 +161,32 @@ def sync_photos():
 
 
 def get_top_photos(limit=5):
-    """Получает топ фото по лайкам из Supabase"""
     conn = get_db()
     photos = conn.execute('SELECT * FROM photos').fetchall()
     conn.close()
-
-    # Собираем лайки для каждого фото
     photo_list = []
     for p in photos:
-        likes = get_photo_likes(p['filename'])
+        likes = get_cached_likes(p['filename'])
         photo_list.append(
             {'id': p['id'], 'filename': p['filename'], 'likes': likes})
-
-    # Сортируем по лайкам и возвращаем топ
     photo_list.sort(key=lambda x: x['likes'], reverse=True)
     return photo_list[:limit]
 
 
 def get_random_photos(limit=10):
-    """Получает случайные фото с лайками из Supabase"""
     conn = get_db()
     photos = conn.execute(
         'SELECT * FROM photos ORDER BY RANDOM() LIMIT ?', (limit,)).fetchall()
     conn.close()
-
     photo_list = []
     for p in photos:
-        likes = get_photo_likes(p['filename'])
+        likes = get_cached_likes(p['filename'])
         photo_list.append(
             {'id': p['id'], 'filename': p['filename'], 'likes': likes})
-
     return photo_list
 
 
 def has_user_voted(user_id, photo_url):
-    """Проверяет, лайкал ли пользователь фото (через Supabase)"""
     try:
         result = supabase.table("photo_likes").select(
             "*").eq("photo_url", photo_url).eq("user_id", user_id).execute()
@@ -215,32 +196,24 @@ def has_user_voted(user_id, photo_url):
 
 
 def toggle_like(user_id, photo_url):
-    """Ставит/убирает лайк (через Supabase)"""
     try:
         if has_user_voted(user_id, photo_url):
-            # Убираем лайк
             supabase.table("photo_likes").delete().eq(
                 "photo_url", photo_url).eq("user_id", user_id).execute()
             liked = False
         else:
-            # Ставим лайк
             supabase.table("photo_likes").insert(
                 {"photo_url": photo_url, "user_id": user_id}).execute()
             liked = True
-
-        # Считаем общее количество лайков
         result = supabase.table("photo_likes").select(
             "*", count="exact").eq("photo_url", photo_url).execute()
         likes = result.count
-
         return liked, likes
-    except Exception as e:
-        print(f"Ошибка лайка: {e}")
+    except:
         return False, 0
 
 
 def get_photo_likes(photo_url):
-    """Получает количество лайков фото из Supabase"""
     try:
         result = supabase.table("photo_likes").select(
             "*", count="exact").eq("photo_url", photo_url).execute()
@@ -314,12 +287,7 @@ def index():
 
     def enrich(p):
         url = p['filename']
-        return {
-            'id': p['id'],
-            'url': url,
-            'likes': get_photo_likes(url),
-            'liked': has_user_voted(user_id, url) if user_id else False
-        }
+        return {'id': p['id'], 'url': url, 'likes': get_cached_likes(url), 'liked': has_user_voted(user_id, url) if user_id else False}
 
     top_data = [enrich(p) for p in top_photos]
     random_data = [enrich(p) for p in random_photos]
@@ -441,8 +409,6 @@ def logout():
     session.pop('user_id', None)
     return redirect('/')
 
-# ==================== АДМИН-ПАНЕЛЬ ====================
-
 
 @app.route('/admin')
 def admin_panel():
@@ -454,7 +420,6 @@ def admin_panel():
     user_email = None
     if user_row and user_row['is_email_user']:
         user_email = user_row['name']
-
     if not user_email or user_email not in ADMIN_EMAILS:
         return 'Доступ запрещён', 403
 
@@ -490,17 +455,17 @@ def admin_panel():
     
     <h3>Тексты сообщений</h3>
     <form action="/admin/contest/texts" method="post">
-        <p>Объявление о конкурсе (рассылается всем при запуске):</p>
+        <p>Объявление о конкурсе:</p>
         <textarea name="announcement" rows="3" cols="50">{contest_messages["announcement"]}</textarea><br>
-        <p>1-е место (используйте {{likes}}):</p>
+        <p>1-е место:</p>
         <textarea name="winner_1" rows="3" cols="50">{contest_messages["winner_1"]}</textarea><br>
         <p>2-е место:</p>
         <textarea name="winner_2" rows="3" cols="50">{contest_messages["winner_2"]}</textarea><br>
         <p>3-е место:</p>
         <textarea name="winner_3" rows="3" cols="50">{contest_messages["winner_3"]}</textarea><br>
-        <p>Остальные места (используйте {{place}} и {{likes}}):</p>
+        <p>Остальные места:</p>
         <textarea name="winner_other" rows="3" cols="50">{contest_messages["winner_other"]}</textarea><br>
-        <p>Проигравшим (используйте {{winners}}):</p>
+        <p>Проигравшим:</p>
         <textarea name="loser" rows="5" cols="50">{contest_messages["loser"]}</textarea><br>
         <button type="submit">Сохранить тексты</button>
     </form>
@@ -521,7 +486,6 @@ def save_contest_texts():
     user_email = None
     if user_row and user_row['is_email_user']:
         user_email = user_row['name']
-
     if not user_email or user_email not in ADMIN_EMAILS:
         return 'Доступ запрещён', 403
 
@@ -537,7 +501,6 @@ def save_contest_texts():
         'winner_other', contest_messages["winner_other"])
     contest_messages["loser"] = request.form.get(
         'loser', contest_messages["loser"])
-
     return redirect('/admin')
 
 
@@ -551,7 +514,6 @@ def admin_delete(photo_id):
     user_email = None
     if user_row and user_row['is_email_user']:
         user_email = user_row['name']
-
     if not user_email or user_email not in ADMIN_EMAILS:
         return 'Доступ запрещён', 403
 
@@ -581,7 +543,6 @@ def admin_send():
     user_email = None
     if user_row and user_row['is_email_user']:
         user_email = user_row['name']
-
     if not user_email or user_email not in ADMIN_EMAILS:
         return 'Доступ запрещён', 403
 
@@ -589,12 +550,11 @@ def admin_send():
     if not message:
         return 'Сообщение не может быть пустым', 400
 
-    # ✅ ЗАПРОС ПОЛЬЗОВАТЕЛЕЙ ИЗ SUPABASE
     try:
         result = supabase.table("bot_users").select("user_id").execute()
         users = [u['user_id'] for u in result.data]
-    except Exception as e:
-        return f'Ошибка получения пользователей из Supabase: {e}', 500
+    except:
+        return 'Ошибка получения пользователей', 500
 
     sent = 0
     for uid in users:
@@ -610,19 +570,24 @@ def admin_send():
             time.sleep(0.05)
         except:
             pass
-
     return f'Отправлено {sent} пользователям. <a href="/admin">Назад</a>'
+
+
 # ==================== КОНКУРС ====================
-
-
 def finish_contest():
     time.sleep(0.1)
     conn = get_db()
     winners_count = current_contest["winners_count"]
-    # Получаем топ-N победителей
-    top_winners = conn.execute(
-        f'SELECT * FROM photos ORDER BY likes DESC LIMIT {winners_count}').fetchall()
-    # Получаем всех пользователей бота
+
+    all_photos = conn.execute('SELECT * FROM photos').fetchall()
+    photo_list = []
+    for p in all_photos:
+        likes = get_photo_likes(p['filename'])
+        photo_list.append(
+            {'id': p['id'], 'filename': p['filename'], 'likes': likes})
+    photo_list.sort(key=lambda x: x['likes'], reverse=True)
+    top_winners = photo_list[:winners_count]
+
     users = conn.execute(
         'SELECT user_id FROM users WHERE is_email_user = 0 AND user_id < 1000000').fetchall()
 
@@ -631,41 +596,38 @@ def finish_contest():
         conn.close()
         return
 
-    # Собираем ID фото победителей
-    winner_photo_ids = [photo['id'] for photo in top_winners]
+    winner_photo_ids = [p['id'] for p in top_winners]
     winners_ids = set()
-
-    # Отправка сообщений победителям
     places = ["1-е место 🥇", "2-е место 🥈", "3-е место 🥉"]
-    for i, photo in enumerate(top_winners):
+
+    for i, p in enumerate(top_winners):
         try:
-            owner_id = int(photo['filename'].split('user_')[1].split('/')[0])
+            owner_id = int(p['filename'].split('user_')[1].split('/')[0])
             winners_ids.add(owner_id)
             place = i + 1
             if place == 1:
-                msg = contest_messages["winner_1"].format(likes=photo['likes'])
+                msg = contest_messages["winner_1"].format(likes=p['likes'])
             elif place == 2:
-                msg = contest_messages["winner_2"].format(likes=photo['likes'])
+                msg = contest_messages["winner_2"].format(likes=p['likes'])
             elif place == 3:
-                msg = contest_messages["winner_3"].format(likes=photo['likes'])
+                msg = contest_messages["winner_3"].format(likes=p['likes'])
             else:
                 msg = contest_messages["winner_other"].format(
-                    place=place, likes=photo['likes'])
+                    place=place, likes=p['likes'])
             requests.post('https://api.vk.com/method/messages.send', params={
                 'user_id': owner_id, 'message': msg,
-                'access_token': VK_SERVICE_TOKEN, 'v': '5.199', 'random_id': 0
+                'access_token': VK_TOKEN, 'v': '5.199', 'random_id': 0
             })
         except:
             pass
 
-    # Отправка сообщений проигравшим
     winners_list = ""
-    for i, photo in enumerate(top_winners):
+    for i, p in enumerate(top_winners):
         place = i + 1
         if place <= 3:
-            winners_list += f"{places[i]}: фото с {photo['likes']} лайками\n"
+            winners_list += f"{places[i]}: фото с {p['likes']} лайками\n"
         else:
-            winners_list += f"{place}-е место: фото с {photo['likes']} лайками\n"
+            winners_list += f"{place}-е место: фото с {p['likes']} лайками\n"
     losers_message = contest_messages["loser"].format(winners=winners_list)
 
     for u in users:
@@ -673,15 +635,12 @@ def finish_contest():
             try:
                 requests.post('https://api.vk.com/method/messages.send', params={
                     'user_id': u['user_id'], 'message': losers_message,
-                    'access_token': VK_SERVICE_TOKEN, 'v': '5.199', 'random_id': 0
+                    'access_token': VK_TOKEN, 'v': '5.199', 'random_id': 0
                 })
                 time.sleep(0.05)
             except:
                 pass
 
-    # ✅ Удаляем ВСЕ фото, КРОМЕ победителей
-    # Сначала удаляем из Supabase
-    all_photos = conn.execute('SELECT * FROM photos').fetchall()
     for photo in all_photos:
         if photo['id'] not in winner_photo_ids:
             try:
@@ -691,7 +650,6 @@ def finish_contest():
             except:
                 pass
 
-    # Затем удаляем записи из БД
     if winner_photo_ids:
         placeholders = ','.join(['?'] * len(winner_photo_ids))
         conn.execute(
@@ -699,15 +657,12 @@ def finish_contest():
         conn.execute(
             f'DELETE FROM votes WHERE photo_id NOT IN ({placeholders})', winner_photo_ids)
     else:
-        # Если победителей нет — удаляем всё
         conn.execute('DELETE FROM photos')
         conn.execute('DELETE FROM votes')
 
     conn.commit()
     conn.close()
-
     current_contest["active"] = False
-    print(f"Конкурс завершён! Победители сохранены, остальные фото удалены.")
 
 
 @app.route('/admin/contest/start', methods=['POST'])
@@ -720,7 +675,6 @@ def start_contest():
     user_email = None
     if user_row and user_row['is_email_user']:
         user_email = user_row['name']
-
     if not user_email or user_email not in ADMIN_EMAILS:
         return 'Доступ запрещён', 403
 
@@ -734,7 +688,6 @@ def start_contest():
         duration * 60, finish_contest)
     current_contest["timer_thread"].start()
 
-    # Рассылка объявления о конкурсе
     announcement = contest_messages["announcement"]
     conn = get_db()
     users = conn.execute(
@@ -745,18 +698,16 @@ def start_contest():
             requests.post('https://api.vk.com/method/messages.send', params={
                 'user_id': u['user_id'],
                 'message': announcement,
-                'access_token': VK_SERVICE_TOKEN,
+                'access_token': VK_TOKEN,
                 'v': '5.199',
                 'random_id': 0
             })
             time.sleep(0.05)
         except:
             pass
-
     return redirect('/admin')
 
 
-# ---------- ЗАПУСК ----------
 if __name__ == '__main__':
     init_db()
     port = int(os.environ.get('PORT', 5000))
