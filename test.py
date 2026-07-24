@@ -79,8 +79,33 @@ def init_db():
         password_hash TEXT,
         is_email_user INTEGER DEFAULT 0
     )''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS photo_likes_cache (
+    photo_url TEXT PRIMARY KEY,
+    likes INTEGER DEFAULT 0,
+    updated_at REAL
+)''')
     conn.commit()
     conn.close()
+
+
+def get_cached_likes(photo_url):
+    """Получает лайки из кэша или из Supabase"""
+    conn = get_db()
+    cached = conn.execute(
+        'SELECT likes, updated_at FROM photo_likes_cache WHERE photo_url = ?', (photo_url,)).fetchone()
+
+    # Если кэш свежий (меньше 60 секунд) — используем его
+    if cached and time.time() - cached['updated_at'] < 60:
+        conn.close()
+        return cached['likes']
+
+    # Иначе запрашиваем из Supabase
+    likes = get_photo_likes(photo_url)
+    conn.execute('INSERT OR REPLACE INTO photo_likes_cache (photo_url, likes, updated_at) VALUES (?, ?, ?)',
+                 (photo_url, likes, time.time()))
+    conn.commit()
+    conn.close()
+    return likes
 
 
 def upload_photo_to_supabase(user_id, photo_url):
@@ -162,7 +187,7 @@ def get_top_photos(limit=5):
     return photo_list[:limit]
 
 
-def get_random_photos(limit=30):
+def get_random_photos(limit=10):
     """Получает случайные фото с лайками из Supabase"""
     conn = get_db()
     photos = conn.execute(
@@ -284,7 +309,7 @@ def index():
         conn.close()
 
     top_photos = get_top_photos(5)
-    random_photos = get_random_photos(30)
+    random_photos = get_random_photos(10)
 
     def enrich(p):
         url = p['filename']
