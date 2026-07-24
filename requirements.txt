@@ -8,3 +8,16 @@ requests
 minio
 supabase
 Pillow
+transformers
+torch
+flask
+gunicorn
+vk-api
+gigachat
+requests
+urllib3
+Pillow
+transformers
+torch
+supabase
+minio
