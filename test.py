@@ -10,6 +10,7 @@ import threading
 from supabase import create_client, Client
 
 # Настройки Supabase
+VK_TOKEN = "vk1.a.zDmGVDdiQH-j2MHwzh0rRoNDPfzDFNrpoje5sC7NtZKsSrElAi3rUeUfEEi0sqgNDuxwYRkeSMpMoABD8tlugCc_pYTGG93SavFBtyiaLiphwjQQ-AjKEFqJpsFBewUnqbIM262W96Tn08BXMHGs_RpFIS64bu6cXEuIWb6QKvd6hSd0OG8bYF7iIWM95EoGz2DkdVLISrwqh25Yg001mg"
 SUPABASE_URL = "https://fmijtyjmliklxciqryap.supabase.co"
 SUPABASE_KEY = "sb_secret_cRKj_FURc95dFCYSrxNDXw_oT7W7yiU"
 SUPABASE_BUCKET = "images"
@@ -22,7 +23,7 @@ VK_APP_ID = "54679818"
 VK_APP_SECRET = "gjEcinHM4La0NrqTZ0Vr"
 SECRET_KEY = "любая_случайная_строка"
 VK_SERVICE_TOKEN = "330ecc69330ecc69330ecc69bb304c95633330e330ecc69595998ac4151ffecb210ea37"
-VK_CLIENT_ID = "54679818"
+VK_CLIENT_ID = "240220666"
 VK_CLIENT_SECRET = "gjEcinHM4La0NrqTZ0Vr"
 VK_REDIRECT_URI = "https://ecobot-lbar.onrender.com"
 
@@ -601,7 +602,7 @@ def admin_send():
             requests.post('https://api.vk.com/method/messages.send', params={
                 'user_id': uid,
                 'message': message,
-                'access_token': VK_SERVICE_TOKEN,
+                'access_token': VK_TOKEN,
                 'v': '5.199',
                 'random_id': 0
             })
