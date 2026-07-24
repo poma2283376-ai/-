@@ -944,3 +944,15 @@ for event in longpoll.listen():
             continue
 
         if stage == "main":
+            user_state[from_user]["stage"] = "contest_photo"
+            send_message(from_user,
+                         "🏆 **Участие в конкурсе**\n\n"
+                         "📸 Отправьте фото для конкурса!\n\n"
+                         "🤖 Фото будет проверено на наличие одежды\n"
+                         "☁️ Затем загружено в облако\n\n"
+                         "❌ Или нажмите 'Прекратить отправку' чтобы отменить",
+                         get_cancel_keyboard())
+        else:
+            send_message(from_user, "Сначала нажмите 'Старт'.",
+                         get_main_keyboard(registered))
+        continue
