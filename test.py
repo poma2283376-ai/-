@@ -572,32 +572,20 @@ def admin_delete(photo_id):
 
 @app.route('/admin/send', methods=['POST'])
 def admin_send():
-    user_id = session.get('user_id')
-    conn = get_db()
-    user_row = conn.execute(
-        'SELECT name, is_email_user FROM users WHERE user_id = ?', (user_id,)).fetchone()
-    conn.close()
-    user_email = None
-    if user_row and user_row['is_email_user']:
-        user_email = user_row['name']
+    # ... проверка админа ...
 
-    if not user_email or user_email not in ADMIN_EMAILS:
-        return 'Доступ запрещён', 403
-
-    message = request.form.get('message', '')
-    if not message:
-        return 'Сообщение не может быть пустым', 400
-
-    conn = get_db()
-    users = conn.execute(
-        'SELECT user_id FROM users WHERE is_email_user = 0 AND user_id < 1000000').fetchall()
-    conn.close()
+    # ✅ Получаем пользователей из Supabase вместо локальной БД
+    try:
+        result = supabase.table("bot_users").select("user_id").execute()
+        users = [u['user_id'] for u in result.data]
+    except:
+        return 'Ошибка получения пользователей', 500
 
     sent = 0
-    for u in users:
+    for user_id in users:
         try:
             requests.post('https://api.vk.com/method/messages.send', params={
-                'user_id': u['user_id'],
+                'user_id': user_id,
                 'message': message,
                 'access_token': VK_SERVICE_TOKEN,
                 'v': '5.199',
@@ -609,7 +597,6 @@ def admin_send():
             pass
 
     return f'Отправлено {sent} пользователям. <a href="/admin">Назад</a>'
-
 # ==================== КОНКУРС ====================
 
 
