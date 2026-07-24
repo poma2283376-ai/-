@@ -572,20 +572,34 @@ def admin_delete(photo_id):
 
 @app.route('/admin/send', methods=['POST'])
 def admin_send():
-    # ... проверка админа ...
+    user_id = session.get('user_id')
+    conn = get_db()
+    user_row = conn.execute(
+        'SELECT name, is_email_user FROM users WHERE user_id = ?', (user_id,)).fetchone()
+    conn.close()
+    user_email = None
+    if user_row and user_row['is_email_user']:
+        user_email = user_row['name']
 
-    # ✅ Получаем пользователей из Supabase вместо локальной БД
+    if not user_email or user_email not in ADMIN_EMAILS:
+        return 'Доступ запрещён', 403
+
+    message = request.form.get('message', '')
+    if not message:
+        return 'Сообщение не может быть пустым', 400
+
+    # ✅ ЗАПРОС ПОЛЬЗОВАТЕЛЕЙ ИЗ SUPABASE
     try:
         result = supabase.table("bot_users").select("user_id").execute()
         users = [u['user_id'] for u in result.data]
-    except:
-        return 'Ошибка получения пользователей', 500
+    except Exception as e:
+        return f'Ошибка получения пользователей из Supabase: {e}', 500
 
     sent = 0
-    for user_id in users:
+    for uid in users:
         try:
             requests.post('https://api.vk.com/method/messages.send', params={
-                'user_id': user_id,
+                'user_id': uid,
                 'message': message,
                 'access_token': VK_SERVICE_TOKEN,
                 'v': '5.199',
