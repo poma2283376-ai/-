@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ecobot - Панель управления</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='gallery.css') }}">
+    <style>
+        .admin-container { max-width: 800px; margin: 40px auto; padding: 20px; font-family: sans-serif; background: #fff; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .admin-input, .admin-textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+        .admin-btn { background: #28a745; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; }
+        .admin-btn:hover { background: #218838; }
+        .photo-row { display: flex; align-items: center; justify-content: space-between; padding: 15px; margin-bottom: 10px; background: #fdfdfd; border: 1px solid #eee; border-radius: 6px; }
+        .del-link { color: #dc3545; text-decoration: none; font-weight: bold; padding: 6px 12px; border: 1px solid #dc3545; border-radius: 4px; }
+        .del-link:hover { background: #fdf2f2; }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        {% if session.get('is_admin') %}
+            <h2>Панель администратора Ecobot</h2>
+            <p><a href="/gallery" style="color: #007bff; text-decoration: none; font-weight: bold;">← Перейти в галерею</a> | <a href="/admin/logout" style="color: #666;">Выйти из панели</a></p>
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+            <h3>📢 Создать массовую рассылку ВКонтакте</h3>
+            <form action="/admin/send" method="post">
+                <textarea class="admin-textarea" name="message" rows="4" placeholder="Введите текст сообщения для всех пользователей бота..." required></textarea>
+                <button class="admin-btn" type="submit">Запустить рассылку</button>
+            </form>
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
+            <h3>🖼 Модерация изображений в базе ({{ photos|length }})</h3>
+            {% for p in photos %}
+                <div class="photo-row">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <img src="{{ p.filename }}" width="70" height="70" style="object-fit: cover; border-radius: 4px;">
+                        <span><strong>ID записи:</strong> {{ p.id }}</span>
+                    </div>
+                    <a class="del-link" href="/admin/delete/{{ p.id }}" onclick="return confirm('Удалить эту работу навсегда?')">🗑 Удалить</a>
+                </div>
+            {% else %}
+                <p style="color: #999;">Фотографий в базе данных пока нет.</p>
+            {% endfor %}
+        {% else %}
+            <h2 style="text-align: center;">Вход в систему управления</h2>
+            {% if error %}<p style="color: red; font-weight: bold; text-align: center;">{{ error }}</p>{% endif %}
+            <form method="POST">
+                <input class="admin-input" name="email" type="email" placeholder="Email администратора" required>
+                <input class="admin-input" name="password" type="password" placeholder="Пароль доступа" required>
+                <button class="admin-btn" type="submit">Авторизоваться</button>
+            </form>
+        {% endif %}
+    </div>
+</body>
+</html>

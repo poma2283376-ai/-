@@ -1,0 +1,169 @@
+import requests
+from flask import Flask, render_template, redirect, url_for, request, session, jsonify
+import urllib.parse, hmac, hashlib, sqlite3, os, time, threading
+from supabase import create_client, Client
+
+# ---------- НАСТРОЙКИ ----------
+VK_TOKEN = "vk1.a.zDmGVDdiQH-j2MHwzh0rRoNDPfzDFNrpoje5sC7NtZKsSrElAi3rUeUfEEi0sqgNDuxwYRkeSMpMoABD8tlugCc_pYTGG93SavFBtyiaLiphwjQQ-AjKEFqJpsFBewUnqbIM262W96Tn08BXMHGs_RpFIS64bu6cXEuIWb6QKvd6hSd0OG8bYF7iIWM95EoGz2DkdVLISrwqh25Yg001mg"
+SUPABASE_URL = "https://fmijtyjmliklxciqryap.supabase.co"
+SUPABASE_KEY = "sb_secret_cRKj_FURc95dFCYSrxNDXw_oT7W7yiU"
+SUPABASE_BUCKET = "images"
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+SUPABASE_API_STORAGE_URL = f"{SUPABASE_URL}/storage/v1/object/list/{SUPABASE_BUCKET}"
+
+VK_APP_ID = "54679818"
+VK_APP_SECRET = "gjEcinHM4La0NrqTZ0Vr"
+SECRET_KEY = "любая_случайная_строка"
+ADMIN_EMAIL = "poma2283376@gmail.com"
+ADMIN_PASSWORD = "admin123"
+
+app = Flask(__name__, static_folder='static')
+app.secret_key = SECRET_KEY
+DB_PATH = os.path.join(os.path.dirname(__file__), "votes.db")
+
+# ---------- БАЗА ДАННЫХ ----------
+def get_db():
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    conn.execute('''CREATE TABLE IF NOT EXISTS photos (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT UNIQUE NOT NULL)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS votes (user_id INTEGER, photo_id INTEGER, PRIMARY KEY (user_id, photo_id))''')
+    conn.commit()
+    conn.close()
+
+def get_photo_likes(photo_url):
+    try: return supabase.table("photo_likes").select("*", count="exact").eq("photo_url", photo_url).execute().count
+    except: return 0
+
+def has_user_voted(user_id, photo_url):
+    try: return len(supabase.table("photo_likes").select("*").eq("photo_url", photo_url).eq("user_id", user_id).execute().data) > 0
+    except: return False
+
+def toggle_like(user_id, photo_url):
+    try:
+        if has_user_voted(user_id, photo_url):
+            supabase.table("photo_likes").delete().eq("photo_url", photo_url).eq("user_id", user_id).execute(); liked = False
+        else:
+            supabase.table("photo_likes").insert({"photo_url": photo_url, "user_id": user_id}).execute(); liked = True
+        likes = supabase.table("photo_likes").select("*", count="exact").eq("photo_url", photo_url).execute().count
+        return liked, likes
+    except: return False, 0
+
+def sync_photos():
+    conn = get_db()
+    existing = {row['filename'] for row in conn.execute('SELECT filename FROM photos').fetchall()}
+    headers = {"Authorization": f"Bearer {SUPABASE_KEY}", "apikey": SUPABASE_KEY, "Content-Type": "application/json"}
+    try:
+        response = requests.post(SUPABASE_API_STORAGE_URL, json={"prefix": ""}, headers=headers, timeout=10)
+        if response.status_code == 200:
+            for item in response.json():
+                if item.get('id') and item.get('name') and item['name'].lower().endswith(('.jpg','.jpeg','.png','.gif')):
+                    public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{item['name']}"
+                    if public_url not in existing:
+                        conn.execute('INSERT OR IGNORE INTO photos (filename) VALUES (?)', (public_url,))
+    except: pass
+    conn.commit(); conn.close()
+
+# ---------- АВТОРИЗАЦИЯ VK MINI APP ----------
+@app.before_request
+def auto_auth():
+    try:
+        query_string = request.query_string.decode()
+        params = dict(urllib.parse.parse_qsl(query_string))
+        sign = params.pop('sign', None)
+        if not sign: return
+        sorted_params = sorted(params.items())
+        query = urllib.parse.urlencode(sorted_params)
+        h = hmac.new(VK_APP_SECRET.encode(), query.encode(), hashlib.sha256)
+        if h.hexdigest() == sign:
+            session['user_id'] = int(params.get('vk_user_id', 0))
+    except: pass
+
+# ---------- МАРШРУТЫ ----------
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/gallery')
+def gallery():
+    sync_photos()
+    user_id = session.get('user_id')
+    conn = get_db()
+    photos = conn.execute('SELECT * FROM photos ORDER BY RANDOM() LIMIT 30').fetchall()
+    conn.close()
+    photo_list = [{'id': p['id'], 'url': p['filename'],
+                   'likes': get_photo_likes(p['filename']),
+                   'liked': has_user_voted(user_id, p['filename']) if user_id else False}
+                  for p in photos]
+    return render_template('gallery.html', photos=photo_list)
+
+@app.route('/like/<path:photo_url>', methods=['POST'])
+def like_photo(photo_url):
+    user_id = session.get('user_id')
+    if not user_id: return jsonify({'error': 'Авторизуйтесь'}), 401
+    liked, likes = toggle_like(user_id, photo_url)
+    return jsonify({'liked': liked, 'likes': likes})
+
+# ---------- АДМИН-ПАНЕЛЬ (как раньше) ----------
+@app.route('/admin', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        if request.form.get('email', '').strip() == ADMIN_EMAIL and request.form.get('password', '') == ADMIN_PASSWORD:
+            session['is_admin'] = True
+            return redirect('/admin')
+        return 'Неверный email или пароль. <a href="/admin">Попробовать ещё раз</a>'
+
+    if not session.get('is_admin'):
+        return '''<h2>Вход в админ-панель</h2>
+        <form method="POST">
+            <input name="email" type="email" placeholder="Email" required><br>
+            <input name="password" type="password" placeholder="Пароль" required><br>
+            <button type="submit">Войти</button>
+        </form>'''
+
+    photos = get_db().execute('SELECT * FROM photos ORDER BY id DESC').fetchall()
+    html = '<h1>Админ-панель</h1><p><a href="/gallery">← Назад</a> | <a href="/admin/logout">Выйти</a></p>'
+    html += '<h2>Рассылка</h2><form action="/admin/send" method="post"><textarea name="message" rows="4" cols="50" placeholder="Сообщение..."></textarea><br><button type="submit">Отправить всем</button></form>'
+    html += f'<h2>Фотографии ({len(photos)})</h2>'
+    for p in photos:
+        likes = get_photo_likes(p['filename'])
+        html += f'<div style="margin-bottom:10px"><img src="{p["filename"]}" width="100"> ❤️ {likes} <a href="/admin/delete/{p["id"]}" onclick="return confirm(\'Удалить?\')">🗑</a></div>'
+    return html
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('is_admin', None)
+    return redirect('/admin')
+
+@app.route('/admin/delete/<int:photo_id>')
+def admin_delete(photo_id):
+    if not session.get('is_admin'): return 'Доступ запрещён', 403
+    conn = get_db()
+    photo = conn.execute('SELECT filename FROM photos WHERE id = ?', (photo_id,)).fetchone()
+    if photo:
+        try: supabase.storage.from_(SUPABASE_BUCKET).remove([photo['filename'].split(f'{SUPABASE_BUCKET}/')[-1]])
+        except: pass
+        conn.execute('DELETE FROM photos WHERE id = ?', (photo_id,))
+        conn.commit()
+    conn.close()
+    return redirect('/admin')
+
+@app.route('/admin/send', methods=['POST'])
+def admin_send():
+    if not session.get('is_admin'): return 'Доступ запрещён', 403
+    message = request.form.get('message', '')
+    if not message: return 'Сообщение не может быть пустым', 400
+    try: users = [u['user_id'] for u in supabase.table("bot_users").select("user_id").execute().data]
+    except: return 'Ошибка получения пользователей', 500
+    for uid in users:
+        try: requests.post('https://api.vk.com/method/messages.send', params={'user_id': uid, 'message': message, 'access_token': VK_TOKEN, 'v': '5.199', 'random_id': 0}); time.sleep(0.05)
+        except: pass
+    return f'Отправлено {len(users)} пользователям. <a href="/admin">Назад</a>'
+
+# ---------- ЗАПУСК ----------
+if __name__ == '__main__':
+    init_db()
+    app.run(host='0.0.0.0', port=5000)
