@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <link rel="stylesheet" href="Gallery.css">
+    <link rel="script" href="script.js">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ecobot - Галерея</title>
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="logo-area">
+                <div class="logo">Ecobot</div>
+                <a href="file:///home/oem/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D0%BA%D0%B8/index.html" class="back-link">Назад</a>
+            </div>
+
+            <a href="#" class="auth-btn">Разместить свой проект</a>
+
+            <div class="hamburger" id="hamburger">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </nav>
+    </header>
+
+    <div class="mobile-menu" id="mobileMenu">
+        <div class="logo">Ecobot</div>
+
+        <ul class="mobile-nav-links">
+            <li><a href="file:///home/oem/Рабочий%20стол/EcoBot/MainGallery.html">Назад</a></li>
+        </ul>
+
+        <a href="#" class="mobile-auth">Разместить свой проект</a>
+    </div>
+
+    <div class="banner-wrap">
+        <div class="banner">
+            <div class="banner-deco box" style="width:60px;height:50px;top:25px;left:60px;transform:rotate(-10deg);"></div>
+            <div class="banner-deco box" style="width:70px;height:60px;top:100px;left:40px;transform:rotate(8deg);"></div>
+            <div class="banner-deco box" style="width:60px;height:55px;top:170px;left:130px;transform:rotate(-6deg);"></div>
+            <div class="banner-deco box" style="width:65px;height:80px;top:70px;left:220px;"></div>
+            <div class="banner-deco box" style="width:60px;height:75px;top:150px;left:300px;"></div>
+            <div class="banner-deco box" style="width:70px;height:60px;top:200px;left:400px;"></div>
+            <div class="banner-deco box" style="width:60px;height:55px;top:150px;left:480px;"></div>
+            <div class="banner-deco box" style="width:70px;height:60px;top:80px;left:560px;"></div>
+            <div class="banner-deco box" style="width:65px;height:60px;top:180px;left:660px;"></div>
+            <div class="banner-deco box" style="width:60px;height:55px;top:60px;left:750px;"></div>
+
+            <div class="banner-deco badge" style="top:30px;left:270px;">%</div>
+            <div class="banner-deco badge" style="top:40px;left:400px;">%</div>
+            <div class="banner-deco badge" style="top:120px;left:520px;">%</div>
+            <div class="banner-deco badge" style="top:30px;left:610px;">%</div>
+
+            <div class="banner-deco dot" style="width:14px;height:14px;top:60px;left:170px;"></div>
+            <div class="banner-deco dot" style="width:10px;height:10px;top:200px;left:220px;"></div>
+            <div class="banner-deco dot" style="width:12px;height:12px;top:210px;left:340px;"></div>
+            <div class="banner-deco dot" style="width:10px;height:10px;top:40px;left:480px;"></div>
+            <div class="banner-deco dot" style="width:14px;height:14px;top:180px;left:560px;"></div>
+            <div class="banner-deco dot" style="width:10px;height:10px;top:70px;left:700px;"></div>
+        </div>
+    </div>
+
+    <div class="products" id="products"></div>
+
+    <!-- Модальное окно -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-box">
+            <button class="modal-close" id="modalClose">&times;</button>
+            <div class="modal-image" id="modalImage"></div>
+            <div class="modal-body">
+                <div class="modal-title" id="modalTitle"></div>
+                <div class="modal-text" id="modalText"></div>
+                <div class="modal-rating" id="modalRating"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const hamburger = document.getElementById('hamburger');
+        const mobileMenu = document.getElementById('mobileMenu');
+
+        hamburger.addEventListener('click', () => {
+            hamburger.classList.toggle('active');
+            mobileMenu.classList.toggle('active');
+        });
+
+        document.querySelectorAll('.mobile-nav-links a').forEach(link => {
+            link.addEventListener('click', () => {
+                hamburger.classList.remove('active');
+                mobileMenu.classList.remove('active');
+            });
+        });
+    </script>
+
+    <script>
+        // Данные карточек — замени title/text/image на свои реальные значения
+        // likes/dislikes — стартовые значения счётчика (можно поставить 0/0)
+        const items = [
+            { id: 1,  title: 'Проект 1',  image: 'ССЫЛКА НА ФОТО',  text: 'Описание проекта 1: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 2,  title: 'Проект 2',  image: 'ССЫЛКА НА ФОТО',  text: 'Описание проекта 2: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 3,  title: 'Проект 3',  image: 'ССЫЛКА НА ФОТО',  text: 'Описание проекта 3: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 4,  title: 'Проект 4',  image: 'ССЫЛКА НА ФОТО',  text: 'Описание проекта 4: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 5,  title: 'Проект 5',  image: 'ССЫЛКА НА ФОТО',  text: 'Описание проекта 5: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 6,  title: 'Проект 6',  image: 'ССЫЛКА НА ФОТО',  text: 'Описание проекта 6: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 7,  title: 'Проект 7',  image: 'ССЫЛКА НА ФОТО',  text: 'Описание проекта 7: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 8,  title: 'Проект 8',  image: 'ССЫЛКА НА ФОТО',  text: 'Описание проекта 8: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 9,  title: 'Проект 9',  image: 'ССЫЛКА НА ФОТО',  text: 'Описание проекта 9: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 10, title: 'Проект 10', image: 'ССЫЛКА НА ФОТО', text: 'Описание проекта 10: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 11, title: 'Проект 11', image: 'ССЫЛКА НА ФОТО', text: 'Описание проекта 11: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 12, title: 'Проект 12', image: 'ССЫЛКА НА ФОТО', text: 'Описание проекта 12: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 13, title: 'Проект 13', image: 'ССЫЛКА НА ФОТО', text: 'Описание проекта 13: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 14, title: 'Проект 14', image: 'ССЫЛКА НА ФОТО', text: 'Описание проекта 14: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 15, title: 'Проект 15', image: 'ССЫЛКА НА ФОТО', text: 'Описание проекта 15: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 },
+            { id: 16, title: 'Проект 16', image: 'ССЫЛКА НА ФОТО', text: 'Описание проекта 16: подробности, условия участия и полезная информация для пользователя.', likes: 0, dislikes: 0 }
+        ];
+
+        // Голос пользователя по каждой карточке: 'like' | 'dislike' | null
+        // Хранится в памяти на время сессии (сбрасывается при перезагрузке страницы)
+        const userVotes = {};
+
+        function getPercent(item) {
+            const total = item.likes + item.dislikes;
+            if (total === 0) return 0;
+            return Math.round((item.likes / total) * 100);
+        }
+
+        function renderRatingHTML(item, size) {
+            const pct = getPercent(item);
+            const total = item.likes + item.dislikes;
+            const vote = userVotes[item.id];
+            const cls = size === 'modal' ? ' modal-rating-inner' : '';
+            return `
+                <div class="rating-block${cls}" data-item-id="${item.id}">
+                    <div class="rating-row">
+                        <div class="rating-bar-track">
+                            <div class="rating-bar-fill" style="width:${pct}%;"></div>
+                        </div>
+                        <span class="rating-pct">${total > 0 ? pct + '%' : '—'}</span>
+                    </div>
+                    <div class="rating-votes">${total} ${voteWord(total)}</div>
+                    <div class="rating-btns">
+                        <button class="vote-btn like ${vote === 'like' ? 'active' : ''}" data-action="like" data-item-id="${item.id}">
+                            👍 <span class="count">${item.likes}</span>
+                        </button>
+                        <button class="vote-btn dislike ${vote === 'dislike' ? 'active' : ''}" data-action="dislike" data-item-id="${item.id}">
+                            👎 <span class="count">${item.dislikes}</span>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function voteWord(n) {
+            const mod10 = n % 10;
+            const mod100 = n % 100;
+            if (mod10 === 1 && mod100 !== 11) return 'оценка';
+            if ([2,3,4].includes(mod10) && ![12,13,14].includes(mod100)) return 'оценки';
+            return 'оценок';
+        }
+
+        function handleVoteClick(action, itemId) {
+            const item = items.find(i => i.id === itemId);
+            if (!item) return;
+            const current = userVotes[itemId];
+
+            if (current === action) {
+                // отменить голос
+                item[action === 'like' ? 'likes' : 'dislikes']--;
+                userVotes[itemId] = null;
+            } else {
+                // если ранее был другой голос — убрать его
+                if (current) {
+                    item[current === 'like' ? 'likes' : 'dislikes']--;
+                }
+                item[action === 'like' ? 'likes' : 'dislikes']++;
+                userVotes[itemId] = action;
+            }
+            refreshAllRatings();
+        }
+
+        function refreshAllRatings() {
+            document.querySelectorAll('.rating-block').forEach(block => {
+                const id = parseInt(block.dataset.itemId, 10);
+                const item = items.find(i => i.id === id);
+                block.outerHTML = renderRatingHTML(item, block.classList.contains('modal-rating-inner') ? 'modal' : 'card');
+            });
+            attachRatingListeners();
+        }
+
+        function attachRatingListeners() {
+            document.querySelectorAll('.vote-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    handleVoteClick(btn.dataset.action, parseInt(btn.dataset.itemId, 10));
+                };
+            });
+        }
+
+        const grid = document.getElementById('products');
+        const modalOverlay = document.getElementById('modalOverlay');
+        const modalImage = document.getElementById('modalImage');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalText = document.getElementById('modalText');
+        const modalRating = document.getElementById('modalRating');
+        const modalClose = document.getElementById('modalClose');
+
+        function openModal(item) {
+            modalTitle.textContent = item.title;
+            modalText.textContent = item.text;
+            modalImage.style.backgroundImage = item.image ? `url('${item.image}')` : '';
+            modalImage.style.backgroundSize = 'cover';
+            modalImage.style.backgroundPosition = 'center';
+            modalRating.innerHTML = renderRatingHTML(item, 'modal');
+            attachRatingListeners();
+            modalOverlay.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            modalOverlay.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        modalClose.addEventListener('click', closeModal);
+        modalOverlay.addEventListener('click', (e) => {
+            if (e.target === modalOverlay) closeModal();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        items.forEach((item) => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.innerHTML = `
+                <div class="card-image" style="background-image:url('${item.image}');background-size:cover;background-position:center;">
+                </div>
+                <div class="card-body">
+                    <div class="card-title">${item.title}</div>
+                    ${renderRatingHTML(item, 'card')}
+                </div>
+            `;
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('.vote-btn')) return;
+                openModal(item);
+            });
+            grid.appendChild(card);
+        });
+
+        attachRatingListeners();
+    </script>
+</body>
+</html>
