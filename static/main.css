@@ -12,7 +12,7 @@
             color: #333;
             background-color: #f8f9fa;
         }
-        
+
         header {
             background: linear-gradient(135deg, #1e6b4a, #2e8b57);
             color: white;
@@ -224,6 +224,7 @@
         .hero {
             height: 100vh;
             min-height: 520px;
+            gap: 2px;
             background: linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), 
                         url('https://cdnstatic.rg.ru/crop1000x667/uploads/images/2023/06/28/22p_verhg_seredina_2_850_57a.jpg') center/cover no-repeat;
             display: flex;
@@ -237,6 +238,7 @@
         .hero-content {
             max-width: 90%;
             padding: 1.5rem;
+            gap: 10rem;
         }
         
         .hero h1 {
@@ -250,7 +252,7 @@
             margin-bottom: 2rem;
         }
 
-        .cta-button {
+        .cta-button-left {
             background: linear-gradient(90deg, #75D9A9, #4ec9b8);
             color: white;
             padding: 16px 44px;
@@ -262,16 +264,36 @@
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 12px;
             box-shadow: 0 10px 30px rgba(117, 217, 169, 0.45);
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .cta-button:hover {
-            transform: translateY(-6px) scale(1.06);
+        .cta-button-right {
+            background: linear-gradient(90deg, #75D9A9, #4ec9b8);
+            color: white;
+            padding: 16px 44px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            box-shadow: 0 10px 30px rgba(117, 217, 169, 0.45);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .cta-button-left:hover {
+            transform: translateY(-6px) translateX(-10) scale(1.06);
             box-shadow: 0 20px 45px rgba(117, 217, 169, 0.6);
         }
-        
+
+        .cta-button-right:hover {
+            transform: translateY(-6px) translateX(10) scale(1.06);
+            box-shadow: 0 20px 45px rgba(117, 217, 169, 0.6);
+        }
+
         section {
             padding: 4.5rem 0;
             max-width: 1200px;
