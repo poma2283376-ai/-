@@ -27,7 +27,6 @@ VK_REDIRECT_URI = "https://ecobot-lbar.onrender.com"
 
 ADMIN_EMAILS = ["poma2283376@gmail.com"]
 
-# Тексты конкурса
 contest_messages = {
     "announcement": "📢 Внимание! Запущен конкурс стилистов!\nУспейте загрузить свои работы и получить лайки!",
     "winner_1": "🎉 Поздравляем! Вы заняли 1-е место 🥇 в конкурсе стилистов!\nВаше фото набрало {likes} лайков.",
@@ -37,17 +36,12 @@ contest_messages = {
     "loser": "Конкурс завершён! К сожалению, вы не заняли призовое место.\n\nПобедители:\n{winners}"
 }
 
-current_contest = {
-    "active": False,
-    "end_time": None,
-    "timer_thread": None,
-    "winners_count": 3
-}
+current_contest = {"active": False, "end_time": None,
+                   "timer_thread": None, "winners_count": 3}
 
 app = Flask(__name__, template_folder=os.path.join(
     os.path.dirname(__file__), 'templates'))
 app.secret_key = SECRET_KEY
-
 DB_PATH = os.path.join(os.path.dirname(__file__), "votes.db")
 
 
@@ -60,7 +54,8 @@ def get_db():
 
 def init_db():
     conn = get_db()
-    conn.execute('''CREATE TABLE IF NOT EXISTS photos (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT UNIQUE NOT NULL, likes INTEGER DEFAULT 0)''')
+    conn.execute(
+        '''CREATE TABLE IF NOT EXISTS photos (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT UNIQUE NOT NULL)''')
     conn.execute(
         '''CREATE TABLE IF NOT EXISTS votes (user_id INTEGER, photo_id INTEGER, PRIMARY KEY (user_id, photo_id))''')
     conn.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, avatar TEXT, password_hash TEXT, is_email_user INTEGER DEFAULT 0)''')
@@ -68,21 +63,6 @@ def init_db():
         '''CREATE TABLE IF NOT EXISTS photo_likes_cache (photo_url TEXT PRIMARY KEY, likes INTEGER DEFAULT 0, updated_at REAL)''')
     conn.commit()
     conn.close()
-
-
-def get_cached_likes(photo_url):
-    conn = get_db()
-    cached = conn.execute(
-        'SELECT likes, updated_at FROM photo_likes_cache WHERE photo_url = ?', (photo_url,)).fetchone()
-    if cached and time.time() - cached['updated_at'] < 60:
-        conn.close()
-        return cached['likes']
-    likes = get_photo_likes(photo_url)
-    conn.execute('INSERT OR REPLACE INTO photo_likes_cache (photo_url, likes, updated_at) VALUES (?, ?, ?)',
-                 (photo_url, likes, time.time()))
-    conn.commit()
-    conn.close()
-    return likes
 
 
 def get_photo_likes(photo_url):
@@ -138,6 +118,36 @@ def sync_photos():
     conn.close()
 
 
+def get_cached_likes(photo_url):
+    conn = get_db()
+    cached = conn.execute(
+        'SELECT likes, updated_at FROM photo_likes_cache WHERE photo_url = ?', (photo_url,)).fetchone()
+    if cached and time.time() - cached['updated_at'] < 60:
+        conn.close()
+        return cached['likes']
+    likes = get_photo_likes(photo_url)
+    conn.execute('INSERT OR REPLACE INTO photo_likes_cache (photo_url, likes, updated_at) VALUES (?, ?, ?)',
+                 (photo_url, likes, time.time()))
+    conn.commit()
+    conn.close()
+    return likes
+
+# ---------- ПРОВЕРКА АДМИНА (по email) ----------
+
+
+def is_admin():
+    user_id = session.get('user_id')
+    if not user_id:
+        return False
+    conn = get_db()
+    user_row = conn.execute(
+        'SELECT name, is_email_user FROM users WHERE user_id = ?', (user_id,)).fetchone()
+    conn.close()
+    if user_row and user_row['is_email_user']:
+        return user_row['name'] in ADMIN_EMAILS
+    return False
+
+
 @app.before_request
 def auto_auth():
     try:
@@ -164,7 +174,15 @@ def index():
 def gallery():
     sync_photos()
     user_id = session.get('user_id')
+    conn = get_db()
+    photos = conn.execute(
+        'SELECT * FROM photos ORDER BY RANDOM() LIMIT 30').fetchall()
+    top = conn.execute(
+        'SELECT * FROM photos ORDER BY likes DESC LIMIT 5').fetchall()
+    conn.close()
+
     user_name = None
+    user_avatar = None
     user_email = None
     if user_id:
         conn = get_db()
@@ -172,20 +190,25 @@ def gallery():
             'SELECT name, avatar, is_email_user FROM users WHERE user_id = ?', (user_id,)).fetchone()
         if user_row:
             user_name = user_row['name']
+            user_avatar = user_row['avatar']
             if user_row['is_email_user']:
                 user_email = user_row['name']
         conn.close()
 
-    conn = get_db()
-    photos = conn.execute(
-        'SELECT * FROM photos ORDER BY RANDOM() LIMIT 30').fetchall()
-    conn.close()
     photo_list = [{'id': p['id'], 'url': p['filename'],
                    'likes': get_cached_likes(p['filename']),
                    'liked': has_user_voted(user_id, p['filename']) if user_id else False}
                   for p in photos]
-    return render_template('gallery.html', photos=photo_list, user_id=user_id,
-                           user_name=user_name, user_email=user_email, ADMIN_EMAILS=ADMIN_EMAILS)
+    top_list = [{'url': p['filename'],
+                 'likes': get_cached_likes(p['filename'])} for p in top]
+
+    return render_template('gallery.html',
+                           photos=photo_list,
+                           top_photos=top_list,
+                           user_id=user_id,
+                           user_name=user_name,
+                           user_email=user_email,
+                           ADMIN_EMAILS=ADMIN_EMAILS)
 
 
 @app.route('/like/<path:photo_url>', methods=['POST'])
@@ -232,7 +255,7 @@ def login():
         conn.close()
         if user and user['password_hash'] == hashlib.sha256(password.encode()).hexdigest():
             session['user_id'] = user['user_id']
-            return redirect('/')
+            return redirect('/gallery')
         return 'Неверный email или пароль', 400
     return '''<h2>Вход</h2><form method="POST"><input name="email" type="email" placeholder="Email"><br><input name="password" type="password" placeholder="Пароль"><br><button type="submit">Войти</button></form>'''
 
@@ -240,26 +263,16 @@ def login():
 @app.route('/logout')
 def logout():
     session.pop('user_id', None)
-    return redirect('/')
+    return redirect('/gallery')
 
-# ---------- АДМИН-ПАНЕЛЬ (с конкурсами) ----------
+# ---------- АДМИН-ПАНЕЛЬ (исправлено) ----------
 
 
 @app.route('/admin')
 def admin_panel():
-    user_id = session.get('user_id')
-    conn = get_db()
-    user_row = conn.execute(
-        'SELECT name, is_email_user FROM users WHERE user_id = ?', (user_id,)).fetchone()
-    conn.close()
-    user_email = None
-    if user_row and user_row['is_email_user']:
-        user_email = user_row['name']
-    if not user_email or user_email not in ADMIN_EMAILS:
+    if not is_admin():
         return 'Доступ запрещён', 403
-
     photos = get_db().execute('SELECT * FROM photos ORDER BY id DESC').fetchall()
-
     contest_status = "<p>Конкурс не запущен.</p>"
     if current_contest["active"]:
         remaining = int(current_contest["end_time"] - time.time())
@@ -268,51 +281,37 @@ def admin_panel():
         else:
             contest_status = "<p style='color:red'>Конкурс завершается...</p>"
 
-    html = f'''<h1>Админ-панель</h1><p><a href="/">На главную</a></p>
-    <h2>Массовая рассылка</h2>
-    <form action="/admin/send" method="post"><textarea name="message" rows="4" cols="50"></textarea><br><button type="submit">Отправить всем</button></form>
-    
-    <h2>Конкурс</h2>
-    {contest_status}
+    html = f'''<h1>Админ-панель</h1><p><a href="/gallery">← Назад</a></p>
+    <h2>Массовая рассылка</h2><form action="/admin/send" method="post"><textarea name="message" rows="4" cols="50"></textarea><br><button type="submit">Отправить всем</button></form>
+    <h2>Конкурс</h2>{contest_status}
     <form action="/admin/contest/start" method="post">
         <input name="duration" type="number" placeholder="Длительность (минуты)" required>
         <select name="winners_count">
-            <option value="1">1 победитель</option>
-            <option value="2">2 победителя</option>
-            <option value="3" selected>3 победителя</option>
-            <option value="5">5 победителей</option>
-            <option value="10">10 победителей</option>
+            <option value="1">1 победитель</option><option value="2">2 победителя</option>
+            <option value="3" selected>3 победителя</option><option value="5">5 победителей</option><option value="10">10 победителей</option>
         </select>
         <button type="submit">Запустить конкурс</button>
     </form>
-    
     <h3>Тексты сообщений</h3>
     <form action="/admin/contest/texts" method="post">
-        <p>Объявление о конкурсе:</p>
-        <textarea name="announcement" rows="3" cols="50">{contest_messages["announcement"]}</textarea><br>
-        <p>1-е место:</p>
-        <textarea name="winner_1" rows="3" cols="50">{contest_messages["winner_1"]}</textarea><br>
-        <p>2-е место:</p>
-        <textarea name="winner_2" rows="3" cols="50">{contest_messages["winner_2"]}</textarea><br>
-        <p>3-е место:</p>
-        <textarea name="winner_3" rows="3" cols="50">{contest_messages["winner_3"]}</textarea><br>
-        <p>Остальные места:</p>
-        <textarea name="winner_other" rows="3" cols="50">{contest_messages["winner_other"]}</textarea><br>
-        <p>Проигравшим:</p>
-        <textarea name="loser" rows="5" cols="50">{contest_messages["loser"]}</textarea><br>
+        <p>Объявление:</p><textarea name="announcement" rows="3" cols="50">{contest_messages["announcement"]}</textarea><br>
+        <p>1-е место:</p><textarea name="winner_1" rows="3" cols="50">{contest_messages["winner_1"]}</textarea><br>
+        <p>2-е место:</p><textarea name="winner_2" rows="3" cols="50">{contest_messages["winner_2"]}</textarea><br>
+        <p>3-е место:</p><textarea name="winner_3" rows="3" cols="50">{contest_messages["winner_3"]}</textarea><br>
+        <p>Остальные:</p><textarea name="winner_other" rows="3" cols="50">{contest_messages["winner_other"]}</textarea><br>
+        <p>Проигравшим:</p><textarea name="loser" rows="5" cols="50">{contest_messages["loser"]}</textarea><br>
         <button type="submit">Сохранить тексты</button>
     </form>
-    
     <h2>Все фотографии</h2>'''
     for photo in photos:
         likes = get_photo_likes(photo['filename'])
-        html += f'<div style="margin-bottom:10px"><img src="{photo["filename"]}" width="100"> ❤️ {likes} <a href="/admin/delete/{photo["id"]}" onclick="return confirm(\'Удалить?\')">Удалить</a></div>'
+        html += f'<div style="margin-bottom:10px"><img src="{photo["filename"]}" width="100"> ❤️ {likes} <a href="/admin/delete/{photo["id"]}" onclick="return confirm(\'Удалить?\')">🗑</a></div>'
     return html
 
 
 @app.route('/admin/contest/texts', methods=['POST'])
 def save_contest_texts():
-    if session.get('user_id') not in ADMIN_EMAILS:
+    if not is_admin():
         return 'Доступ запрещён', 403
     contest_messages["announcement"] = request.form.get(
         'announcement', contest_messages["announcement"])
@@ -331,7 +330,7 @@ def save_contest_texts():
 
 @app.route('/admin/delete/<int:photo_id>')
 def admin_delete(photo_id):
-    if session.get('user_id') not in ADMIN_EMAILS:
+    if not is_admin():
         return 'Доступ запрещён', 403
     conn = get_db()
     photo = conn.execute(
@@ -350,7 +349,7 @@ def admin_delete(photo_id):
 
 @app.route('/admin/send', methods=['POST'])
 def admin_send():
-    if session.get('user_id') not in ADMIN_EMAILS:
+    if not is_admin():
         return 'Доступ запрещён', 403
     message = request.form.get('message', '')
     if not message:
@@ -381,18 +380,15 @@ def finish_contest():
                    'likes': get_photo_likes(p['filename'])} for p in all_photos]
     photo_list.sort(key=lambda x: x['likes'], reverse=True)
     top_winners = photo_list[:winners_count]
-
     try:
         users = [u['user_id'] for u in supabase.table(
             "bot_users").select("user_id").execute().data]
     except:
         users = []
-
     if not top_winners:
         current_contest["active"] = False
         conn.close()
         return
-
     places = ["1-е место 🥇", "2-е место 🥈", "3-е место 🥉"]
     winners_ids = set()
     for i, p in enumerate(top_winners):
@@ -413,7 +409,6 @@ def finish_contest():
                           'user_id': owner_id, 'message': msg, 'access_token': VK_TOKEN, 'v': '5.199', 'random_id': 0})
         except:
             pass
-
     winners_list = "\n".join([f"{places[i] if i < 3 else f'{i+1}-е место'}: {
                              p['likes']} лайков" for i, p in enumerate(top_winners)])
     losers_message = contest_messages["loser"].format(winners=winners_list)
@@ -425,8 +420,6 @@ def finish_contest():
                 time.sleep(0.05)
             except:
                 pass
-
-    # Удаление проигравших фото
     winner_ids = [p['id'] for p in top_winners]
     for photo in all_photos:
         if photo['id'] not in winner_ids:
@@ -448,7 +441,7 @@ def finish_contest():
 
 @app.route('/admin/contest/start', methods=['POST'])
 def start_contest():
-    if session.get('user_id') not in ADMIN_EMAILS:
+    if not is_admin():
         return 'Доступ запрещён', 403
     duration = int(request.form.get('duration', 5))
     winners_count = int(request.form.get('winners_count', 3))
@@ -458,7 +451,6 @@ def start_contest():
     current_contest["timer_thread"] = threading.Timer(
         duration * 60, finish_contest)
     current_contest["timer_thread"].start()
-
     announcement = contest_messages["announcement"]
     try:
         users = [u['user_id'] for u in supabase.table(
